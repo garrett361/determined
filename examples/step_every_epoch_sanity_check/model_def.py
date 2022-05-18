@@ -10,7 +10,6 @@ from determined.pytorch import (
     DataLoader,
     PyTorchTrial,
     PyTorchTrialContext,
-    LRScheduler,
 )
 
 
@@ -19,7 +18,7 @@ TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
 
 class SimpleDataset(Dataset):
     def __init__(self, size: int = 4) -> None:
-        self.size = 4
+        self.size = size
 
     def __len__(self) -> int:
         return self.size
