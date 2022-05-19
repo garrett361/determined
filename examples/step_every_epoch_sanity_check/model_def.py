@@ -67,9 +67,13 @@ class StepEveryEpochTrial(PyTorchTrial):
         return {"val_loss": torch.zeros(1)}
 
     def build_training_data_loader(self) -> Any:
-        trainset = SimpleDataset(self.hparams.dataset_size)
-        return DataLoader(trainset, batch_size=self.context.get_per_slot_batch_size())
+        train_dataset = SimpleDataset(self.hparams.dataset_size)
+        return DataLoader(
+            train_dataset, batch_size=self.context.get_per_slot_batch_size()
+        )
 
     def build_validation_data_loader(self) -> Any:
-        valset = SimpleDataset(self.hparams.dataset_size)
-        return DataLoader(valset, batch_size=self.context.get_per_slot_batch_size())
+        val_dataset = SimpleDataset(self.hparams.dataset_size)
+        return DataLoader(
+            val_dataset, batch_size=self.context.get_per_slot_batch_size()
+        )
