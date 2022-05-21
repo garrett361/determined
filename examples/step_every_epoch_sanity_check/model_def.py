@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Sequence, Union
 
 import attrdict
 import torch

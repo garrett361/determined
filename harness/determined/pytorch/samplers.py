@@ -158,11 +158,9 @@ class SkipSampler(torch.utils.data.BatchSampler):
 
 class SkipBatchSampler(torch.utils.data.BatchSampler):
     """
-    SkipBatchSampler skips some batches from an underlying BatchSampler, and yield the rest.
-
+    SkipBatchSampler skips some initial batches from an underlying BatchSampler, and yields the rest.
     Always skip before you repeat when you are continuing training, or you will apply the skip on
     every epoch.
-
     Because the SkipBatchSampler is only meant to be used on a training dataset (we never
     checkpoint during evaluation), and because the training dataset should always be repeated
     before applying the skip (so you only skip once rather than many times), the length reported
@@ -243,3 +241,29 @@ class ReproducibleShuffleBatchSampler(torch.utils.data.Sampler):
         # Check the original batch_sampler in case its length changes every epoch.
         # TODO: that would likely cause reproducibility issues.
         return len(self._batch_sampler)
+
+
+class TruncateBatchSampler(torch.utils.data.BatchSampler):
+    """
+    TruncateBatchSampler skips some final batches from an underlying BatchSampler, and yields the rest.
+
+    The reported length of the sampler is the length of the underlying sampler minus the truncation.
+    """
+
+    def __init__(
+        self,
+        batch_sampler: torch.utils.data.BatchSampler,
+        truncate: int,
+    ) -> None:
+        check.gt(truncate, -1, "truncate must be non-negative")
+        self.batch_sampler = batch_sampler
+        self.batch_sampler_len = len(batch_sampler)
+        self.truncate = truncate
+
+    def __len__(self) -> int:
+        return self.batch_sampler_len - self.truncate
+
+    def __iter__(self) -> Iterator:
+        iterator = iter(self.batch_sampler)
+        for _ in range(len(self)):
+            yield from iterator
