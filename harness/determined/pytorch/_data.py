@@ -292,15 +292,11 @@ def adapt_batch_sampler(
         if num_replicas > 1:
             total_batches = len(batch_sampler)
             overflow_batches = total_batches % num_replicas
-            batch_sampler = samplers.TruncateBatchSampler(
-                batch_sampler, truncate=overflow_batches
-            )
+            batch_sampler = samplers.TruncateBatchSampler(batch_sampler, truncate=overflow_batches)
         batch_sampler = samplers.RepeatBatchSampler(batch_sampler)
 
     if num_replicas > 1:
-        batch_sampler = samplers.DistributedBatchSampler(
-            batch_sampler, num_replicas, rank
-        )
+        batch_sampler = samplers.DistributedBatchSampler(batch_sampler, num_replicas, rank)
 
     # SkipBatchSampler is used when we are continuing training. SkipBatchSampler must be applied
     # after DistributedBatchSampler, since the number of batches to skip is based on how many
