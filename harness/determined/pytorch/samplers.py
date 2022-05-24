@@ -53,9 +53,7 @@ class DistributedSampler(torch.utils.data.Sampler):
     samplers, so it accepts a sampler as input that may or may not be constant-size.
     """
 
-    def __init__(
-        self, sampler: torch.utils.data.Sampler, num_workers: int, rank: int
-    ) -> None:
+    def __init__(self, sampler: torch.utils.data.Sampler, num_workers: int, rank: int) -> None:
         self._sampler = sampler
         self._num_workers = num_workers
         self._rank = rank
@@ -108,9 +106,7 @@ class DistributedBatchSampler(torch.utils.data.BatchSampler):
 
     def __len__(self) -> int:
         full_global_batches = len(self.batch_sampler) // self.num_workers
-        worker_gets_partial_batch = int(
-            len(self.batch_sampler) % self.num_workers > self.rank
-        )
+        worker_gets_partial_batch = int(len(self.batch_sampler) % self.num_workers > self.rank)
         return full_global_batches + worker_gets_partial_batch
 
     def __iter__(self) -> Iterator:
