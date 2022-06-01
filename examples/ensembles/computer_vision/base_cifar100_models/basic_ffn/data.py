@@ -1,7 +1,7 @@
 import dataclasses
 from io import BytesIO, StringIO
 import json
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 import os
 import urllib
 
@@ -25,7 +25,7 @@ class DatasetMetadata:
     in_chans: int
     mean: ImageStat
     std: ImageStat
-    labels: Tuple[str]
+    labels: Sequence[str]
 
     def to_dict(self) -> Dict[str, Union[int, ImageStat]]:
         return dataclasses.asdict(self)
@@ -281,9 +281,13 @@ def get_dataset(
 
 
 def build_transform(
-    dataset_metadata: Any, transform_config: attrdict.AttrDict, train: bool
+    dataset_metadata: Any,
+    transform_config: Optional[attrdict.AttrDict] = None,
+    train: bool = False,
 ) -> nn.Module:
     """Generate transforms via timm's transform factory."""
+    if transform_config is None:
+        transform_config = attrdict.AttrDict({})
     return create_transform(
         input_size=dataset_metadata.img_size,
         is_training=train,

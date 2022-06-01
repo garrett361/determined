@@ -39,11 +39,13 @@ hyperparameters:
     re_count: 1
 min_validation_period:
   epochs: 1
+min_checkpoint_period:
+  epochs: 1
 searcher:
   name: single
   metric: validation_loss
   max_length:
-    epochs: 128 # epochs + cooldown_epochs from scheduler
+    epochs: 32
   smaller_is_better: true
 max_restarts: 0
 resources:
