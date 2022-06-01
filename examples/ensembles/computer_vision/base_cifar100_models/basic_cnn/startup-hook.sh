@@ -1,1 +1,1 @@
-python3 -m pip install einops timm
+python3 -m pip install einops timm attrdict
