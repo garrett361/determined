@@ -67,7 +67,7 @@
   },
   "devDependencies": {
     "@craco/craco": "^6.4.0",
-    "@storybook/addon-actions": "^6.3.12",
+    "@storybook/addon-actions": "^6.5.9",
     "@storybook/addon-backgrounds": "^6.3.12",
     "@storybook/addon-docs": "^6.3.12",
     "@storybook/addon-knobs": "^6.3.1",
