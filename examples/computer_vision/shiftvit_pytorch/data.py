@@ -10,8 +10,9 @@ from google.cloud import storage
 from PIL import Image as PILImage
 from timm.data import create_transform
 import torch.nn as nn
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, ImageFolder
 import torchvision
+from tqdm import tqdm
 
 ImageStat = Union[Tuple[float], Tuple[float, float, float]]
 
@@ -41,6 +42,13 @@ DATASET_METADATA_BY_NAME = {
     ),
     "imagenet": DatasetMetadata(
         num_classes=1000,
+        img_size=224,
+        in_chans=3,
+        mean=(0.485, 0.456, 0.406),
+        std=(0.229, 0.224, 0.225),
+    ),
+    "imagenette2": DatasetMetadata(
+        num_classes=10,
         img_size=224,
         in_chans=3,
         mean=(0.485, 0.456, 0.406),
@@ -115,6 +123,22 @@ DATASET_DICT = {
 }
 
 
+class RAMImageFolder:
+    """Class for loading images into memory."""
+
+    def __init__(self, *args, **kwargs):
+        im_folder = ImageFolder(*args, **kwargs)
+        self.samples = []
+        for im_t, label_t in tqdm(im_folder, desc="files"):
+            self.samples.append((im_t, label_t))
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        return self.samples[idx]
+
+
 def get_dataset(data_config: attrdict.AttrDict, train: bool, transform: nn.Module) -> Dataset:
     """
     Downloads (or streams, in the case of ImageNet) the training or validation dataset, and applies
@@ -125,6 +149,9 @@ def get_dataset(data_config: attrdict.AttrDict, train: bool, transform: nn.Modul
     if dataset_name == "imagenet":
         # Imagenet data is streamed from GCS directly into memory.
         return dataset(data_config=data_config, train=train, transform=transform)
+    elif dataset_name == "imagenette2":
+        root = data_config.root + ("/train" if train else "/val")
+        return RAMImageFolder(root=root, transform=transform)
     else:
         download_dir = data_config.download_dir
         os.makedirs(download_dir, exist_ok=True)

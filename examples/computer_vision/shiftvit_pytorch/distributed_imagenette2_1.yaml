@@ -3,17 +3,9 @@ entrypoint: model_def:ShiftViTTrial
 reproducibility:
   experiment_seed: 42
 data:
-  dataset_name: imagenet
-  # TODO: Change this to the name of your bucket.
-  gcs_bucket: determined-ai-datasets
-  # TODO: Path to files inside the above bucket that contain newline separated list of all image blob paths.
-  # Generate using generate_blob_list.py
-  gcs_train_blob_list_path: imagenet/imagenet/train-blob-list.txt
-  gcs_validation_blob_list_path: imagenet/imagenet/validation-blob-list.txt
-  num_workers: 8
-  pin_memory: True
-  persistent_workers: True
-records_per_epoch: 1281167
+  dataset_name: imagenette2
+  root: data/imagenette2
+records_per_epoch: 9469
 hyperparameters:
   # ShiftViT ImageNet experiments use batch_size = 1024
   global_batch_size: 128
