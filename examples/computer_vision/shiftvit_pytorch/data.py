@@ -162,7 +162,7 @@ def get_dataset(data_config: attrdict.AttrDict, train: bool, transform: nn.Modul
     dataset_name = data_config.dataset_name
     if dataset_name in {"imagewang", "imagewoof2", "imagenette2"}:
         root = data_config.root + ("/train" if train else "/val")
-        return RAMImageFolder(root=root, transform=transform)
+        return ImageFolder(root=root, transform=transform)
 
     dataset = DATASET_DICT[dataset_name]
     if dataset_name == "imagenet":

@@ -1,4 +1,4 @@
-name: shiftvit_distributed_timing_1gpu
+name: shiftvit_distributed_timing_4gpu
 entrypoint: model_def:ShiftViTTrial
 workspace: Shiftvit
 project: Timing
@@ -6,7 +6,7 @@ reproducibility:
   experiment_seed: 42
 data:
   dataset_name: imagewang
-  root: shared_fs/data/imagewang
+  root: shared_fs/data/imagewang-160
   num_workers: 0
   pin_memory: False
   persistent_workers: False
