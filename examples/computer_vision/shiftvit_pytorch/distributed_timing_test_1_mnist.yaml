@@ -1,16 +1,16 @@
-name: shiftvit_distributed_timing_2gpu
+name: shiftvit_distributed_timing_1gpu
 entrypoint: model_def:ShiftViTTrial
-workspace: Shiftvit
-project: Timing
+workspace: Garrett
+project: Testing
 reproducibility:
   experiment_seed: 42
 data:
-  dataset_name: imagenette2
-  root: shared_fs/data/imagenette2-160
+  dataset_name: mnist
+  download_dir: /data
   num_workers: 0
   pin_memory: False
   persistent_workers: False
-records_per_epoch: 9469
+records_per_epoch: 60000
 hyperparameters:
   # ShiftViT ImageNet experiments use batch_size = 1024
   global_batch_size: 128
@@ -64,7 +64,7 @@ hyperparameters:
 min_validation_period:
   epochs: 10
 resources:
-  slots_per_trial: 2
+  slots_per_trial: 1
   shm_size: 17179869184 # 16 GiB
 searcher:
   name: single

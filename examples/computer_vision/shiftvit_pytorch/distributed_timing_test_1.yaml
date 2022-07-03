@@ -5,15 +5,15 @@ project: Timing
 reproducibility:
   experiment_seed: 42
 data:
-  dataset_name: imagewang
-  root: shared_fs/data/imagewang
+  dataset_name: imagenette2
+  root: shared_fs/data/imagenette2-160
   num_workers: 0
   pin_memory: False
   persistent_workers: False
-records_per_epoch: 14669
+records_per_epoch: 9469
 hyperparameters:
   # ShiftViT ImageNet experiments use batch_size = 1024
-  global_batch_size: 1024
+  global_batch_size: 128
   # ShiftViT model args, using ShiftViT defaults
   model:
     n_div: 12

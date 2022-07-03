@@ -1,19 +1,19 @@
-name: shiftvit_distributed_timing_4gpu
+name: shiftvit_distributed_timing_1gpu
 entrypoint: model_def:ShiftViTTrial
 workspace: Shiftvit
 project: Timing
 reproducibility:
   experiment_seed: 42
 data:
-  dataset_name: imagewang
-  root: shared_fs/data/imagewang-160
+  dataset_name: imagenette2
+  root: shared_fs/data/imagenette2-160
   num_workers: 0
   pin_memory: False
   persistent_workers: False
-records_per_epoch: 14669
+records_per_epoch: 9469
 hyperparameters:
   # ShiftViT ImageNet experiments use batch_size = 1024
-  global_batch_size: 256
+  global_batch_size: 128
   # ShiftViT model args, using ShiftViT defaults
   model:
     n_div: 12
@@ -62,14 +62,15 @@ hyperparameters:
     re_mode: pixel
     re_count: 1
 min_validation_period:
-  epochs: 1
+  epochs: 10
 resources:
   slots_per_trial: 4
+  shm_size: 17179869184 # 16 GiB
 searcher:
   name: single
   metric: validation_loss
   max_length:
-    epochs: 2 # 300 for full ShiftViT; epochs + cooldown_epochs from scheduler
+    epochs: 10 # 300 for full ShiftViT; epochs + cooldown_epochs from scheduler
   smaller_is_better: true
 max_restarts: 0
 profiling:

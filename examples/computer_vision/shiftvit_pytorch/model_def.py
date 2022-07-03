@@ -60,10 +60,12 @@ class ShiftViTTrial(PyTorchTrial):
         self._curr_epoch_idx = 0
 
     def build_training_data_loader(self) -> DataLoader:
+        print(f"Building training data loader")
         training_data_loader = self._get_data_loader(train=True)
         return training_data_loader
 
     def build_validation_data_loader(self) -> DataLoader:
+        print(f"Building validation data loader")
         validation_data_loader = self._get_data_loader(train=False)
         return validation_data_loader
 
@@ -71,6 +73,7 @@ class ShiftViTTrial(PyTorchTrial):
         self, batch: TorchData, epoch_idx: int, batch_idx: int
     ) -> Dict[str, torch.Tensor]:
         batch = cast(Tuple[torch.Tensor, torch.Tensor], batch)
+        print(f"Training batch {batch_idx}")
         # Step timm lr scheduler at the start of each epoch.
         if epoch_idx != self._curr_epoch_idx:
             print(f"Stepping scheduler at epoch {epoch_idx}")
