@@ -1,4 +1,4 @@
-name: shiftvit_distributed_timing_4gpu
+name: shiftvit_distributed_timing_8gpu
 entrypoint: model_def:ShiftViTTrial
 workspace: Shiftvit
 project: Timing
@@ -64,7 +64,7 @@ hyperparameters:
 min_validation_period:
   epochs: 10
 resources:
-  slots_per_trial: 4
+  slots_per_trial: 8
   shm_size: 17179869184 # 16 GiB
 searcher:
   name: single
