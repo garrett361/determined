@@ -1,1 +1,1 @@
-pip install torchmetrics
+pip install torchmetrics==0.9.2
