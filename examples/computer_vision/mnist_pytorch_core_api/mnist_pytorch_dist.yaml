@@ -6,7 +6,7 @@ workspace: Core API
 project: MNIST
 max_restarts: 0
 resources:
-    slots_per_trial: 2
+    slots_per_trial: 1
 searcher:
     name: single
     max_length: 1

@@ -1,15 +1,12 @@
-import os
-
+import determined as det
 import torch
 import torch.distributed as dist
-import torch.functional as F
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 import torchvision.datasets as datasets
 import torchvision.transforms as T
-from tqdm import tqdm
 
 
 class MNISTModel(nn.Module):
@@ -60,40 +57,39 @@ def build_data_loader(is_distributed: bool, train: bool, batch_size: int = 256) 
     return loader
 
 
-def train(model, device, optimizer, criterion, train_loader, epochs=1) -> None:
+def train_one_epoch(model, device, optimizer, criterion, train_loader) -> None:
     model.train()
-    for epoch_idx in tqdm(range(epochs), desc="training_epoch"):
-        for batch_idx, batch in enumerate(tqdm(train_loader, desc="training_batch")):
-            images, labels = batch
-            images, labels = images.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            if (batch_idx + 1) % 10 == 0:
-                print(f"Train Epoch: {epoch_idx} Batch: {batch_idx} Loss: {loss.item()}")
+    for batch_idx, batch in enumerate(train_loader):
+        images, labels = batch
+        images, labels = images.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        if (batch_idx + 1) % 10 == 0:
+            print(f"Train Batch: {batch_idx} Loss: {loss.item()}")
 
 
 def validate(model, device, criterion, val_loader) -> None:
     model.eval()
-    for batch_idx, batch in enumerate(val_loader):
-        images, labels = batch
-        images, labels = images.to(device), labels.to(device)
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        print(f"DEVICE: {device} Batch: {batch_idx} Loss: {loss.item()}")
-        if (batch_idx + 1) % 10 == 0:
-            print(f"Batch: {batch_idx} Loss: {loss.item()}")
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(val_loader):
+            images, labels = batch
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            if (batch_idx + 1) % 10 == 0:
+                print(f"Batch: {batch_idx} Loss: {loss.item()}")
 
 
-def main():
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
-    is_distributed = world_size > 1
-    local_rank = 0 if not is_distributed else int(os.environ["LOCAL_RANK"])
-    device = f"cuda:{local_rank}"
+def main(core_context) -> None:
+    rank = core_context.distributed.rank
+    is_distributed = core_context.distributed.size > 1
+    is_chief = rank == 0
+    device = f"cuda:{rank}"
     if is_distributed:
-        dist.init_process_group("nccl", world_size=world_size, rank=local_rank)
+        dist.init_process_group("nccl")
 
     train_loader = build_data_loader(is_distributed, train=True)
     val_loader = build_data_loader(is_distributed, train=False)
@@ -101,21 +97,29 @@ def main():
     model = MNISTModel()
     model.to(device)
     if is_distributed:
-        model = DDP(model, device_ids=[local_rank])
+        model = DDP(model, device_ids=[rank])
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.CrossEntropyLoss()
 
-    train(
+    train_one_epoch(
         model=model,
         optimizer=optimizer,
         criterion=criterion,
         train_loader=train_loader,
         device=device,
-        epochs=1,
     )
+    if is_chief:
+        core_context.train.report_training_metrics(steps_completed=1, metrics={"loss": 1.0})
 
     validate(model=model, criterion=criterion, val_loader=val_loader, device=device)
+    if is_chief:
+        core_context.train.report_validation_metrics(steps_completed=2, metrics={"val_loss": 1.0})
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        distributed = det.core.DistributedContext.from_torch_distributed()
+    except KeyError:
+        distributed = None
+    with det.core.init(distributed=distributed) as core_context:
+        main(core_context)
