@@ -1,3 +1,5 @@
+import logging
+
 import determined as det
 import torch
 import torch.distributed as dist
@@ -42,7 +44,7 @@ class MNISTModel(nn.Module):
 
 
 class Trainer:
-    def __init__(self, core_context, model, batch_size, metric_agg_rate_batches=10) -> None:
+    def __init__(self, core_context, model, batch_size, metric_agg_rate_batches=1) -> None:
         self.core_context = core_context
         self.model = model
         self.batch_size = batch_size
@@ -63,13 +65,11 @@ class Trainer:
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-        self.train_accs = {f"train_top{k}_acc": Accuracy(top_k=k) for k in range(1, 6)}
-        for met in self.train_accs.values():
+        self.accuracy_metrics = {f"top{k}_acc": Accuracy(top_k=k) for k in range(1, 6)}
+        for met in self.accuracy_metrics.values():
             met.to(self.device)
-
-        self.val_accs = {f"val_top{k}_acc": Accuracy(top_k=k) for k in range(1, 6)}
-        for met in self.val_accs.values():
-            met.to(self.device)
+        self.loss_metric = MeanMetric()
+        self.loss_metric.to(self.device)
 
     def build_data_loader(self, train: bool) -> DataLoader:
         mnist_transform = T.Compose(
@@ -80,7 +80,7 @@ class Trainer:
         )
 
         dataset = datasets.MNIST(
-            root="/data", train=train, download=True, transform=mnist_transform
+            root="shared_fs/data", train=train, download=False, transform=mnist_transform
         )
         if self.is_distributed:
             sampler = DistributedSampler(dataset, shuffle=True)
@@ -97,22 +97,16 @@ class Trainer:
             images, labels = images.to(self.device), labels.to(self.device)
             self.optimizer.zero_grad()
             outputs = self.model(images)
-            loss = self.criterion(outputs, labels)
+            loss = self.get_loss_and_update_metrics(outputs, labels)
             loss.backward()
             self.optimizer.step()
-            for met in self.train_accs.values():
-                met(outputs, labels)
             if (self.trained_batches + 1) % self.metric_agg_rate_batches == 0:
-                computed_metrics = {
-                    name: metric.compute().item() for name, metric in self.train_accs.items()
-                }
-                computed_metrics["train_loss"] = loss.item()
+                computed_metrics = self.compute_metrics("train_")
                 if self.is_chief:
                     core_context.train.report_training_metrics(
                         steps_completed=self.trained_batches, metrics=computed_metrics
                     )
-                for met in self.train_accs.values():
-                    met.reset()
+                self.reset_metrics()
         if self.core_context.preempt.should_preempt():
             return
 
@@ -123,39 +117,55 @@ class Trainer:
                 images, labels = batch
                 images, labels = images.to(self.device), labels.to(self.device)
                 outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
-                for met in self.train_accs.values():
-                    met(outputs, labels)
-                if (self.trained_batches + 1) % self.metric_agg_rate_batches == 0:
-                    computed_metrics = {
-                        name: metric.compute().item() for name, metric in self.val_accs.items()
-                    }
-                    computed_metrics["val_loss"] = loss.item()
-                    if self.is_chief:
-                        core_context.train.report_validation_metrics(
-                            steps_completed=self.trained_batches, metrics=computed_metrics
-                        )
-                    for met in self.val_accs.values():
-                        met.reset()
+                self.get_loss_and_update_metrics(outputs, labels)
+                computed_metrics = self.compute_metrics("val_")
+            if self.is_chief:
+                print(80 * "=", "reporting val metrics", 80 * "=", sep="\n")
+                core_context.train.report_validation_metrics(
+                    steps_completed=self.trained_batches, metrics=computed_metrics
+                )
+            self.reset_metrics()
         if self.core_context.preempt.should_preempt():
             return
 
     def train(self, epochs=1, val_freq=1) -> None:
         for epoch_idx in range(epochs):
-            print(50 * "*", f"Training during epoch {epoch_idx}", 50 * "*", sep="\n")
+            if self.is_chief:
+                print(80 * "*", f"Training during epoch {epoch_idx}", 80 * "*", sep="\n")
             self.train_one_epoch()
             if (epoch_idx + 1) % val_freq == 0:
-                print(50 * "*", f"Validating during epoch {epoch_idx}", 50 * "*", sep="\n")
+                if self.is_chief:
+                    print(80 * "*", f"Validating during epoch {epoch_idx}", 80 * "*", sep="\n")
                 self.validate()
+
+    def get_loss_and_update_metrics(self, outputs, labels):
+        loss = self.criterion(outputs, labels)
+        for met in self.accuracy_metrics.values():
+            met(outputs, labels)
+        self.loss_metric(loss)
+        return loss
+
+    def compute_metrics(self, prefix: str = ""):
+        computed_metrics = {
+            prefix + name: metric.compute().item() for name, metric in self.accuracy_metrics.items()
+        }
+        computed_metrics[prefix + "loss"] = self.loss_metric.compute().item()
+        return computed_metrics
+
+    def reset_metrics(self):
+        for met in self.accuracy_metrics.values():
+            met.reset()
+        self.loss_metric.reset()
 
 
 def main(core_context) -> None:
     model = MNISTModel()
     trainer = Trainer(core_context, model, batch_size=128, metric_agg_rate_batches=10)
-    trainer.train(2, 1)
+    trainer.train(10, 2)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
     try:
         distributed = det.core.DistributedContext.from_torch_distributed()
     except KeyError:
