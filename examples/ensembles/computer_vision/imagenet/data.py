@@ -1,47 +1,16 @@
 import dataclasses
-from typing import Any, Dict, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Literal, Optional, Sequence, Tuple, Union
 
+import attrdict
 import pickle
 from timm.data import create_transform
 import torch
 import torch.nn as nn
+from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 
 ImageStat = Union[Tuple[float], Tuple[float, float, float]]
 TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
-
-
-@dataclasses.dataclass
-class DatasetMetadata:
-    num_classes: int
-    img_size: int
-    in_chans: int
-    mean: ImageStat
-    std: ImageStat
-
-    def to_dict(self) -> Dict[str, Union[int, ImageStat]]:
-        return dataclasses.asdict(self)
-
-
-DATASET_METADATA_BY_NAME = {
-    "mnist": DatasetMetadata(
-        num_classes=10, img_size=28, in_chans=1, mean=(0.1307,), std=(0.3081,)
-    ),
-    "cifar10": DatasetMetadata(
-        num_classes=10,
-        img_size=32,
-        in_chans=3,
-        mean=(0.4914, 0.4822, 0.4465),
-        std=(0.2470, 0.2435, 0.2616),
-    ),
-    "imagenet": DatasetMetadata(
-        num_classes=1000,
-        img_size=224,
-        in_chans=3,
-        mean=(0.485, 0.456, 0.406),
-        std=(0.229, 0.224, 0.225),
-    ),
-}
 
 
 class RAMImageFolder:
@@ -62,10 +31,10 @@ class RAMImageFolder:
 
 class SplitImageFolder(ImageFolder):
     def __init__(
-        self, split_path: str, split: Literal["train", "val", "test"], *args, **kwargs
+        self, split_pkl_path: str, split: Literal["train", "val", "test"], *args, **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
-        with open(split_path, "rb") as f:
+        with open(split_pkl_path, "rb") as f:
             self._split_mappings = pickle.load(f)
         self.idx_mapping = self._split_mappings[split]
 
@@ -84,16 +53,127 @@ class SplitImageFolder(ImageFolder):
         return sample, target
 
 
+@dataclasses.dataclass
+class DatasetMetadata:
+    num_classes: int
+    root: str
+    dataset_class: type = ImageFolder
+    img_size: int = 224
+    in_chans: int = 3
+    mean: ImageStat = (0.485, 0.456, 0.406)
+    std: ImageStat = (0.229, 0.224, 0.225)
+    target_transform_path: Optional[str] = None
+
+    def to_attrdict(self) -> Dict[str, Union[int, ImageStat]]:
+        return attrdict.AttrDict(dataclasses.asdict(self))
+
+
+DATASET_METADATA_BY_NAME = {
+    "imagenet": DatasetMetadata(
+        num_classes=1000,
+        root="shared_fs/data/imagenet",
+        dataset_class=SplitImageFolder,
+    ),
+    "imagewang": DatasetMetadata(
+        num_classes=20,
+        root="shared_fs/data/imagewang",
+        dataset_class=RAMImageFolder,
+        target_transform_path="shared_fs/data/imagewang_to_imagenet_idx_map.pkl",
+    ),
+    "imagewang-160": DatasetMetadata(
+        num_classes=20,
+        root="shared_fs/data/imagewang-160",
+        dataset_class=RAMImageFolder,
+        target_transform_path="shared_fs/data/imagewang_to_imagenet_idx_map.pkl",
+    ),
+    "imagewang-320": DatasetMetadata(
+        num_classes=20,
+        root="shared_fs/data/imagewang-320",
+        dataset_class=RAMImageFolder,
+        target_transform_path="shared_fs/data/imagewang_to_imagenet_idx_map.pkl",
+    ),
+    "imagewoof2": DatasetMetadata(
+        num_classes=10,
+        root="shared_fs/data/imagewoof2",
+        dataset_class=RAMImageFolder,
+        target_transform_path="shared_fs/data/imagewoof2_to_imagenet_idx_map.pkl",
+    ),
+    "imagewoof2-160": DatasetMetadata(
+        num_classes=10,
+        root="shared_fs/data/imagewoof2-160",
+        dataset_class=RAMImageFolder,
+        target_transform_path="shared_fs/data/imagewoof2_to_imagenet_idx_map.pkl",
+    ),
+    "imagewoof2-320": DatasetMetadata(
+        num_classes=10,
+        root="shared_fs/data/imagewoof2-320",
+        dataset_class=RAMImageFolder,
+        target_transform_path="shared_fs/data/imagewoof2_to_imagenet_idx_map.pkl",
+    ),
+    "imagenette2": DatasetMetadata(
+        num_classes=10,
+        root="shared_fs/data/imagenette2",
+        dataset_class=RAMImageFolder,
+        target_transform_path="shared_fs/data/imagenette2_to_imagenet_idx_map.pkl",
+    ),
+    "imagenette2-160": DatasetMetadata(
+        num_classes=10,
+        root="shared_fs/data/imagenette2-160",
+        dataset_class=RAMImageFolder,
+        target_transform_path="shared_fs/data/imagenette2_to_imagenet_idx_map.pkl",
+    ),
+    "imagenette2-320": DatasetMetadata(
+        num_classes=10,
+        root="shared_fs/data/imagenette2-320",
+        dataset_class=RAMImageFolder,
+        target_transform_path="shared_fs/data/imagenette2_to_imagenet_idx_map.pkl",
+    ),
+}
+
+
+def build_target_transform(path: str) -> Callable:
+    with open(path, "rb") as f:
+        mapping = pickle.load(f)
+    label_transform = lambda idx: mapping[idx]
+    return label_transform
+
+
 def build_transform(
-    dataset_metadata: Any, transform_config: Optional[dict] = None, train: bool = False
+    dataset_metadata: attrdict.AttrDict,
+    split: str,
+    transform_config: Optional[dict] = None,
 ) -> nn.Module:
     """Generate transforms via timm's transform factory."""
-    if transform_config is None:
-        transform_config = {}
+    transform_config = transform_config or {}
+    is_training = split == "train"
     return create_transform(
         input_size=dataset_metadata.img_size,
-        is_training=train,
+        is_training=is_training,
         mean=dataset_metadata.mean,
         std=dataset_metadata.std,
         **transform_config,
     )
+
+
+def get_dataset(
+    name: str,
+    split: Literal["train", "val", "test"],
+    transform_config: Optional[dict] = None,
+) -> Dataset:
+    transform_config = transform_config or {}
+    dataset_metadata = DATASET_METADATA_BY_NAME[name].to_attrdict()
+    transform = build_transform(dataset_metadata, split=split, transform_config=transform_config)
+    if dataset_metadata.dataset_class == RAMImageFolder:
+        root = dataset_metadata.root + "/" + split
+        target_transform = build_target_transform(dataset_metadata.target_transform_path)
+        dataset = dataset_metadata.dataset_class(
+            root=root, transform=transform, target_transform=target_transform
+        )
+    elif dataset_metadata.dataset_class == SplitImageFolder:
+        dataset = dataset_metadata.dataset_class(
+            split_pkl_path="shared_fs/data/imagenetv2_train_val_test_idx_split.pkl",
+            split=dataset_metadata.split,
+            root=dataset_metadata.root,
+            transform=transform,
+        )
+    return dataset
