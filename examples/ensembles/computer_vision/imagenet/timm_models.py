@@ -40,30 +40,34 @@ base_models = {"best": timm_best_models, "smallest": timm_smallest_models_75_top
 
 
 def get_timm_ensembles_of_model_names(
-    criteria: Literal["best", "smallest"], num_base_models: int, num_ensembles: int, seed: int = 42
+    model_criteria: Literal["best", "smallest"],
+    num_base_models: int,
+    num_ensembles: int,
+    seed: int = 42,
+    offset: int = 0,
 ) -> List[List[str]]:
     """Returns num_ensembles unique ensembles of timm model names, each comprising of
     num_base_models models.
     """
-    if criteria == "best":
+    if model_criteria == "best":
         base_models = timm_best_models
-    elif criteria == "smallest":
+    elif model_criteria == "smallest":
         base_models = timm_smallest_models_75_top1_masked
     else:
-        raise ValueError(f"Unknown criteria: {criteria}")
+        raise ValueError(f"Unknown model_criteria: {model_criteria}")
     assert (
         len(base_models) >= num_base_models
     ), f"num_base_models cannot be greater than {len(base_models)}, the number of base models."
 
     random.seed(seed)
     ensembles = []
-    for _ in range(num_ensembles):
+    for _ in range(num_ensembles + offset):
         while True:
             new_ensemble = sorted(random.sample(base_models, k=num_base_models))
             if new_ensemble not in ensembles:
                 ensembles.append(new_ensemble)
                 break
-    return ensembles
+    return ensembles[offset:]
 
 
 def build_timm_model_list(model_names: List[str], pretrained: bool = True) -> List[nn.Module]:
