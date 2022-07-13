@@ -8,15 +8,14 @@ from torch.utils.data import Dataset, DataLoader, SequentialSampler, RandomSampl
 from torch.utils.data.distributed import DistributedSampler
 import torchmetrics
 
-import ensemble_metrics
-
 
 class EnsembleTrainer(nn.Module):
     def __init__(
         self,
         core_context,
         model_list: List[nn.Module],
-        batch_size: int,
+        train_batch_size: int,
+        val_batch_size: int,
         val_dataset: Dataset,
         train_dataset: Optional[Dataset] = None,
         ensemble_strategy: str = "naive",
@@ -29,7 +28,8 @@ class EnsembleTrainer(nn.Module):
         for model in model_list:
             model.eval()
         self.models = nn.ModuleList(model_list)
-        self.batch_size = batch_size
+        self.train_batch_size = train_batch_size
+        self.val_batch_size = val_batch_size
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.ensemble_strategy = ensemble_strategy
@@ -74,7 +74,7 @@ class EnsembleTrainer(nn.Module):
         else:
             sampler = RandomSampler(self.train_dataset)
         loader = DataLoader(
-            self.train_dataset, batch_size=self.batch_size, sampler=sampler, drop_last=True
+            self.train_dataset, batch_size=self.train_batch_size, sampler=sampler, drop_last=True
         )
         return loader
 
@@ -84,14 +84,11 @@ class EnsembleTrainer(nn.Module):
         else:
             sampler = SequentialSampler(self.val_dataset)
         loader = DataLoader(
-            self.val_dataset, batch_size=self.batch_size, sampler=sampler, drop_last=True
+            self.val_dataset, batch_size=self.val_batch_size, sampler=sampler, drop_last=True
         )
         return loader
 
     def build_ensemble(self) -> None:
-        print(
-            f"Building ensemble for rank {self.rank}, using the {self.ensemble_strategy} strategy"
-        )
         self._ensemble_strategies[self.ensemble_strategy](*self.ensemble_args)
 
     def _build_naive_ensemble(self) -> None:
@@ -108,7 +105,6 @@ class EnsembleTrainer(nn.Module):
         return ensemble_prob
 
     def validate_ensemble(self) -> None:
-        print(f"Validating ensemble")
         self.models.eval()
         with torch.no_grad():
             for batch_idx, batch in enumerate(self.val_loader):
