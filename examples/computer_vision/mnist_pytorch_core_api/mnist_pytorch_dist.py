@@ -102,6 +102,7 @@ class Trainer:
             self.optimizer.step()
             if (self.trained_batches + 1) % self.metric_agg_rate_batches == 0:
                 computed_metrics = self.compute_metrics("train_")
+                computed_metrics["test_list"] = list(range(10))
                 if self.is_chief:
                     core_context.train.report_training_metrics(
                         steps_completed=self.trained_batches, metrics=computed_metrics
@@ -119,6 +120,7 @@ class Trainer:
                 outputs = self.model(images)
                 self.get_loss_and_update_metrics(outputs, labels)
                 computed_metrics = self.compute_metrics("val_")
+                computed_metrics["test_list"] = list(range(10))
             if self.is_chief:
                 print(80 * "=", "reporting val metrics", 80 * "=", sep="\n")
                 core_context.train.report_validation_metrics(
