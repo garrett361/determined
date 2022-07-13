@@ -8,7 +8,8 @@ parser.add_argument("-m", "--master", type=str, default="localhost:8080")
 parser.add_argument("-nb", "--num_base_models", type=int, default=1)
 parser.add_argument("-ne", "--num_ensembles", type=int, default=1)
 parser.add_argument("-o", "--offset", type=int, default=0)
-parser.add_argument("-b", "--batch_size", type=int, default=128)
+parser.add_argument("-tb", "--train_batch_size", type=int, default=128)
+parser.add_argument("-vb", "--val_batch_size", type=int, default=256)
 parser.add_argument("-d", "--dataset_name", type=str, default="imagenette2-160")
 parser.add_argument("-st", "--skip_train", type=bool, default=True)
 parser.add_argument("-es", "--ensemble_strategy", type=str, default="naive")
@@ -30,8 +31,10 @@ config = {
     "reproducibility": {"experiment_seed": 42},
     "resources": {"slots_per_trial": 1},
     "searcher": {"name": "single", "max_length": 1, "metric": "val_loss"},
+    "environment": {"environment_variables": ["OMP_NUM_THREADS=1"]},
     "hyperparameters": {
-        "batch_size": args.batch_size,
+        "train_batch_size": args.train_batch_size,
+        "val_batch_size": args.val_batch_size,
         "dataset_name": args.dataset_name,
         "skip_train": args.skip_train,
         "ensemble_strategy": args.ensemble_strategy,
