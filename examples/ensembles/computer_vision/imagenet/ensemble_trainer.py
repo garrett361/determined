@@ -22,6 +22,7 @@ class EnsembleTrainer(nn.Module):
         ensemble_strategy: str = "naive",
         ensemble_args: Optional[dict] = None,
         val_logging_data: Dict[str, Any] = None,
+        sanity_check: bool = False,
     ) -> None:
         super().__init__()
         self.core_context = core_context
@@ -34,6 +35,9 @@ class EnsembleTrainer(nn.Module):
         self.ensemble_strategy = ensemble_strategy
         self.ensemble_args = ensemble_args or {}
         self.val_logging_data = val_logging_data or {}
+        self.sanity_check = sanity_check
+        if self.sanity_check:
+            print(f"Running in sanity check mode!")
 
         self.rank = core_context.distributed.rank
         self.is_distributed = core_context.distributed.size > 1
@@ -65,7 +69,6 @@ class EnsembleTrainer(nn.Module):
         # Not every ensembling strategy needs a train loader
         if self.train_dataset is None:
             return
-        print(f"Building train loader for rank {self.rank}")
         if self.is_distributed:
             sampler = DistributedSampler(self.train_dataset, shuffle=True)
         else:
@@ -76,7 +79,6 @@ class EnsembleTrainer(nn.Module):
         return loader
 
     def build_val_loader(self) -> DataLoader:
-        print(f"Building val loader for rank {self.rank}")
         if self.is_distributed:
             sampler = DistributedSampler(self.val_dataset, shuffle=False)
         else:
@@ -100,6 +102,9 @@ class EnsembleTrainer(nn.Module):
         """Returns probabilties for the ensembled model."""
         model_probs = torch.stack([model(inputs).softmax(dim=1) for model in self.models], dim=-1)
         ensemble_prob = model_probs @ self.ensemble_weights
+        if self.sanity_check:
+            prob_sum_check = ensemble_prob.sum(dim=1)
+            torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
         return ensemble_prob
 
     def validate_ensemble(self) -> None:
