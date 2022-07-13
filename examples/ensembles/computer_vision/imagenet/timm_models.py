@@ -6,6 +6,9 @@ least 75% accuracy on the same task.
 from typing import Literal, List
 import random
 
+import timm
+import torch.nn as nn
+
 
 timm_best_models = [
     "beit_large_patch16_512",
@@ -36,7 +39,7 @@ timm_smallest_models_75_top1_masked = [
 base_models = {"best": timm_best_models, "smallest": timm_smallest_models_75_top1_masked}
 
 
-def get_timm_model_ensembles(
+def get_timm_ensembles_of_model_names(
     criteria: Literal["best", "smallest"], num_base_models: int, num_ensembles: int, seed: int = 42
 ) -> List[List[str]]:
     """Returns num_ensembles unique ensembles of timm model names, each comprising of
@@ -48,6 +51,9 @@ def get_timm_model_ensembles(
         base_models = timm_smallest_models_75_top1_masked
     else:
         raise ValueError(f"Unknown criteria: {criteria}")
+    assert (
+        len(base_models) >= num_base_models
+    ), f"num_base_models cannot be greater than {len(base_models)}, the number of base models."
 
     random.seed(seed)
     ensembles = []
@@ -58,3 +64,13 @@ def get_timm_model_ensembles(
                 ensembles.append(new_ensemble)
                 break
     return ensembles
+
+
+def build_timm_model_list(model_names: List[str], pretrained: bool = True) -> List[nn.Module]:
+    """Returns a list of models, each of which is a timm model."""
+    models = []
+    for model_name in model_names:
+        print(f"Building model {model_name}...")
+        model = timm.create_model(model_name, pretrained=pretrained)
+        models.append(model)
+    return models

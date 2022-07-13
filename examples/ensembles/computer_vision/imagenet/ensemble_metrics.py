@@ -14,13 +14,11 @@ class ZeroDimMeanMetric(BaseAggregator):
     def __init__(
         self,
         nan_strategy: Union[str, float] = "warn",
-        **kwargs: Any,
     ):
         super().__init__(
             "sum",
             torch.tensor(0.0),
             nan_strategy,
-            **kwargs,
         )
         self.add_state("records", default=torch.tensor(0.0), dist_reduce_fx="sum")
 
@@ -56,13 +54,11 @@ class MultiModelAccuracy(BaseAggregator):
         nan_strategy: Union[str, float] = "warn",
         dim: int = 1,
         k: int = 1,
-        **kwargs: Any,
     ):
         super().__init__(
             "sum",
             torch.tensor(0.0),
             nan_strategy,
-            **kwargs,
         )
         self.dim = dim
         self.k = k
@@ -83,6 +79,9 @@ class MultiModelAccuracy(BaseAggregator):
         records = output.shape[0]
         if output.numel() == 0:
             return
+        assert (
+            len(output.shape) == 3
+        ), "output should be a 3D tensor, consisting of batch, pred, and model dimss, in that order"
 
         preds = output.topk(k=self.k, dim=1).indices
         non_model_dims = len(preds.shape) - 1
