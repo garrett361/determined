@@ -20,7 +20,7 @@ class EnsembleTrainer(nn.Module):
         train_dataset: Optional[Dataset] = None,
         ensemble_strategy: str = "naive",
         ensemble_args: Optional[dict] = None,
-        val_logging_data: Dict[str, Any] = None,
+        extra_val_log_metrics: Dict[str, Any] = None,
         sanity_check: bool = False,
     ) -> None:
         super().__init__()
@@ -34,7 +34,7 @@ class EnsembleTrainer(nn.Module):
         self.val_dataset = val_dataset
         self.ensemble_strategy = ensemble_strategy
         self.ensemble_args = ensemble_args or {}
-        self.val_logging_data = val_logging_data or {}
+        self.extra_val_log_metrics = extra_val_log_metrics or {}
         self.sanity_check = sanity_check
         if self.sanity_check:
             print(f"Running in sanity check mode!")
@@ -114,7 +114,12 @@ class EnsembleTrainer(nn.Module):
                 self.get_loss_and_update_metrics(probs, labels)
             if self.is_chief:
                 computed_metrics = self.compute_metrics("val_")
-                reported_metrics = {**self.val_logging_data, **computed_metrics}
+                conflicted_keys = set(self.extra_val_log_metrics) & set(computed_metrics)
+                if conflicted_keys:
+                    raise ValueError(
+                        f"extra_val_log_metrics/val_metrics conflicting keys: {conflicted_keys}"
+                    )
+                reported_metrics = {**self.extra_val_log_metrics, **computed_metrics}
                 self.core_context.train.report_validation_metrics(
                     steps_completed=self.trained_batches, metrics=reported_metrics
                 )
