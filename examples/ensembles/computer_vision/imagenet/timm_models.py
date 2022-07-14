@@ -3,7 +3,9 @@ by ImageNet validation accuracy (top-1), as well as the top-ten smallest models 
 least 75% accuracy on the same task.
 """
 
-from typing import Literal, List
+import itertools
+import math
+from typing import Literal, List, Union
 import random
 
 import timm
@@ -47,7 +49,7 @@ def get_timm_ensembles_of_model_names(
     offset: int = 0,
 ) -> List[List[str]]:
     """Returns num_ensembles unique ensembles of timm model names, each comprising of
-    num_base_models models.
+    num_base_models models.  Use num_ensembles = -1 to get all possible ensembles.
     """
     if model_criteria == "best":
         base_models = timm_best_models
@@ -58,15 +60,23 @@ def get_timm_ensembles_of_model_names(
     assert (
         len(base_models) >= num_base_models
     ), f"num_base_models cannot be greater than {len(base_models)}, the number of base models."
+    if num_ensembles == -1:
+        ensembles = list(itertools.combinations(base_models, num_base_models))
+    else:
+        max_ensembles = math.comb(len(base_models), num_base_models)
+        assert num_ensembles <= max_ensembles, (
+            f"num_ensembles is greater than {max_ensembles}, the maximum number possible ensembles of"
+            f" size {num_base_models} drawn from {len(base_models)} options."
+        )
 
-    random.seed(seed)
-    ensembles = []
-    for _ in range(num_ensembles + offset):
-        while True:
-            new_ensemble = sorted(random.sample(base_models, k=num_base_models))
-            if new_ensemble not in ensembles:
-                ensembles.append(new_ensemble)
-                break
+        random.seed(seed)
+        ensembles = []
+        for _ in range(num_ensembles + offset):
+            while True:
+                new_ensemble = sorted(random.sample(base_models, k=num_base_models))
+                if new_ensemble not in ensembles:
+                    ensembles.append(new_ensemble)
+                    break
     return ensembles[offset:]
 
 

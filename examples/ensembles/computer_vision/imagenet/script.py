@@ -39,6 +39,7 @@ config = {
         "skip_train": args.skip_train,
         "ensemble_strategy": args.ensemble_strategy,
         "sanity_check": args.sanity_check,
+        "num_base_models": args.num_base_models,
     },
 }
 
