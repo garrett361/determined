@@ -53,6 +53,7 @@ ensembles = timm_models.get_timm_ensembles_of_model_names(
 for model_names in ensembles:
     config["hyperparameters"]["model_names"] = model_names
     client.create_experiment(config=config, model_dir=".")
+    print(f"Models in ensemble: {model_names}")
 
 print(
     "",
