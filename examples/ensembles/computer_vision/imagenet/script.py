@@ -19,7 +19,7 @@ parser.add_argument("-d", "--dataset_name", type=str, default="imagenette2-160")
 parser.add_argument("-st", "--skip_train", type=bool, default=True)
 parser.add_argument("-es", "--ensemble_strategy", type=str, default="naive")
 parser.add_argument("-mc", "--model_criteria", type=str, default="small")
-parser.add_argument("-n", "--name", type=str, default="test")
+parser.add_argument("-n", "--name", type=str, default="")
 parser.add_argument("-w", "--workspace", type=str, default="Ensembling")
 parser.add_argument("-sc", "--sanity_check", type=bool, default=True)
 parser.add_argument("-t", "--test", type=bool, default=True)
@@ -27,6 +27,10 @@ parser.add_argument("-cpp", "--checkpoint_path_prefix", type=str, default="share
 args = parser.parse_args()
 
 client.login(master=args.master, user=args.user, password=args.password)
+
+# Generate name from command line arguments, if none provided.
+if not args.name:
+    args.name = f"{args.model_criteria}_{args.ensemble_strategy}_{args.num_base_models}"
 
 config = {
     "entrypoint": "python -m determined.launch.torch_distributed -- python -m main",
