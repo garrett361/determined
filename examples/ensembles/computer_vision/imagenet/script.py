@@ -10,20 +10,20 @@ parser = argparse.ArgumentParser(description="ImageNet Ensemble Loops")
 parser.add_argument("-m", "--master", type=str, default="localhost:8080")
 parser.add_argument("-u", "--user", type=str, default="determined")
 parser.add_argument("-p", "--password", type=str, default="")
+parser.add_argument("-d", "--dataset_name", type=str, default="imagenette2-160")
+parser.add_argument("-es", "--ensemble_strategy", type=str, default="naive")
+parser.add_argument("-mc", "--model_criteria", type=str, default="small")
+parser.add_argument("-n", "--name", type=str, default="")
+parser.add_argument("-w", "--workspace", type=str, default="Ensembling")
+parser.add_argument("-cpp", "--checkpoint_path_prefix", type=str, default="shared_fs/state_dicts/")
 parser.add_argument("-nb", "--num_base_models", type=int, default=1)
 parser.add_argument("-ne", "--num_ensembles", type=int, default=1)
 parser.add_argument("-o", "--offset", type=int, default=0)
 parser.add_argument("-tb", "--train_batch_size", type=int, default=128)
 parser.add_argument("-vb", "--val_batch_size", type=int, default=256)
-parser.add_argument("-d", "--dataset_name", type=str, default="imagenette2-160")
-parser.add_argument("-st", "--skip_train", type=bool, default=True)
-parser.add_argument("-es", "--ensemble_strategy", type=str, default="naive")
-parser.add_argument("-mc", "--model_criteria", type=str, default="small")
-parser.add_argument("-n", "--name", type=str, default="")
-parser.add_argument("-w", "--workspace", type=str, default="Ensembling")
-parser.add_argument("-sc", "--sanity_check", type=bool, default=True)
-parser.add_argument("-t", "--test", type=bool, default=True)
-parser.add_argument("-cpp", "--checkpoint_path_prefix", type=str, default="shared_fs/state_dicts/")
+parser.add_argument("-st", "--skip_train", action="store_false")
+parser.add_argument("-sc", "--sanity_check", action="store_false")
+parser.add_argument("-t", "--test", action="store_false")
 args = parser.parse_args()
 
 client.login(master=args.master, user=args.user, password=args.password)
@@ -74,7 +74,10 @@ ensembles = timm_models.get_timm_ensembles_of_model_names(
 for model_names in ensembles:
     config["hyperparameters"]["model_names"] = model_names
     client.create_experiment(config=config, model_dir=".")
-    print(f"Models in ensemble: {config['hyperparameters']['model_names']}")
+    print(
+        f"{args.num_base_models} models in ensemble: {config['hyperparameters']['model_names']}",
+        "\n",
+    )
 
 print(
     "",
