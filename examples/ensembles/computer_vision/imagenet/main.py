@@ -8,7 +8,7 @@ import ensemble_trainer
 import timm_models
 
 
-def main(core_context, hparams) -> None:
+def main(core_context, hparams: attrdict.AttrDict) -> None:
     if hparams.skip_train:
         print(f"Skipping building train_dataset")
         train_dataset = None
@@ -41,7 +41,7 @@ def main(core_context, hparams) -> None:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
     info = det.get_cluster_info()
-    hparams = attrdict.AttrDict(info.trial.hparams)
+    hparams = info.trial.hparams
     try:
         distributed = det.core.DistributedContext.from_torch_distributed()
     except KeyError:
