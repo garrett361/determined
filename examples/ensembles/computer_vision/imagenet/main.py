@@ -1,4 +1,5 @@
 import logging
+from typing import Any, Dict
 
 import determined as det
 
@@ -8,7 +9,8 @@ import ensemble_trainer
 import timm_models
 
 
-def main(core_context, hparams: attrdict.AttrDict) -> None:
+def main(core_context, hparams: Dict[str, Any]) -> None:
+    hparams = attrdict.AttrDict(hparams)
     if hparams.skip_train:
         print(f"Skipping building train_dataset")
         train_dataset = None
@@ -19,7 +21,9 @@ def main(core_context, hparams: attrdict.AttrDict) -> None:
     print(f"Building val_dataset")
     val_dataset = data.get_dataset(name=hparams.dataset_name, split="val")
 
-    model_list = timm_models.build_timm_model_list(hparams.model_names)
+    model_list = timm_models.build_timm_model_list(
+        hparams.model_names, hparams.checkpoint_path_prefix
+    )
     trainer = ensemble_trainer.EnsembleTrainer(
         core_context,
         model_list=model_list,
