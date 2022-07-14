@@ -1,12 +1,7 @@
 import json
-import os
-from collections import defaultdict
-from datetime import datetime
-from typing import Any, Dict, List, Tuple, Union, Sequence, Set, Optional
+from typing import Any, Dict, List, Union, Sequence, Set, Optional
 import pandas as pd
 import requests
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 
 class Workspace:
@@ -29,7 +24,8 @@ class Workspace:
         self.token = self._get_login_token()
         self.py_request_headers = self._get_py_request_headers()
         if create_workspace:
-            pass
+            self._create_workspace(workspace_name)
+        self.workspace_id = self._get_workspace_id()
 
     def _get_login_token(self) -> str:
         auth = json.dumps({"username": self.username, "password": self.password})
@@ -45,6 +41,21 @@ class Workspace:
     def _get_py_request_headers(self) -> Dict[str, str]:
         return dict(Cookie=f"auth={self.token}")
 
+    def _create_workspace(self, workspace_name: str) -> None:
+        """Creates a new workspace, if it doesn't already exist."""
+        workspace_id = None
+        try:
+            workspace_id = self._get_workspace_id()
+        except ValueError:
+            url = f"{self.master_url}/api/v1/workspaces"
+            workspace_dict = {
+                "name": workspace_name,
+            }
+            requests.post(url, headers=self.py_request_headers, json=workspace_dict)
+            print(f"Created workspace {workspace_name}.")
+        if workspace_id is not None:
+            print(f"Workspace {workspace_name} already exists.")
+
     def _get_workspace_id(self) -> int:
         url = f"{self.master_url}/api/v1/workspaces"
         response = requests.get(url, headers=self.py_request_headers)
@@ -58,17 +69,29 @@ class Workspace:
             raise ValueError(f"{self.workspace_name} workspace not found!")
         return workspace_id
 
-    def get_workspace_projects(self) -> List[Dict[str, Any]]:
-        workspace_id = self._get_workspace_id()
-        url = f"{self.master_url}/api/v1/workspaces/{workspace_id}/projects"
+    def get_projects(self) -> List[Dict[str, Any]]:
+        url = f"{self.master_url}/api/v1/workspaces/{self.workspace_id}/projects"
         response = requests.get(url, headers=self.py_request_headers)
         projects = json.loads(response.content)["projects"]
         return projects
 
-    def _get_project_ids_from_workspace(
+    def create_project(self, project_name: str, description: str = "") -> None:
+        """Creates a new project in the workspace, if it doesn't already exist."""
+        if self._get_project_ids(project_name):
+            print(f"Project {project_name} already exists in the {self.workspace_name} workspace.")
+            return
+        url = f"{self.master_url}/api/v1/workspaces/{self.workspace_id}/projects"
+        project_dict = {
+            "name": project_name,
+            "description": description,
+            "workspaceId": self.workspace_id,
+        }
+        requests.post(url, headers=self.py_request_headers, json=project_dict)
+
+    def _get_project_ids(
         self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> Set[int]:
-        workspace_projects = self.get_workspace_projects()
+        workspace_projects = self.get_projects()
         if project_names is None:
             project_names = {wp["name"] for wp in workspace_projects}
         elif isinstance(project_names, str):
@@ -81,10 +104,10 @@ class Workspace:
                 project_ids.add(project["id"])
         return project_ids
 
-    def get_exps_from_workspace(
+    def get_experiments(
         self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> List[Dict[str, Any]]:
-        project_ids = self._get_project_ids_from_workspace(project_names)
+        project_ids = self._get_project_ids(project_names)
         exps = []
         for pid in project_ids:
             url = f"{self.master_url}/api/v1/projects/{pid}/experiments"
@@ -93,11 +116,11 @@ class Workspace:
             exps += pid_exp
         return exps
 
-    def get_trials_from_workspace(
+    def get_trials(
         self,
         project_names: Optional[Union[Sequence[str], str]] = None,
     ) -> List[Dict[str, Any]]:
-        experiments = self.get_exps_from_workspace(project_names)
+        experiments = self.get_experiments(project_names)
         experiment_ids = [exp["id"] for exp in experiments]
 
         trials = []
@@ -109,7 +132,7 @@ class Workspace:
                 trials.append(trial)
         return trials
 
-    def get_trial_results_dict_from_workspace(
+    def get_trial_results_dict(
         self,
         project_names: Optional[Union[Sequence[str], str]] = None,
         validated: bool = False,
@@ -119,7 +142,7 @@ class Workspace:
         will be returned. If validated is True, only validated trials will be returned.
         """
         trial_results_dict = {}
-        trials = self.get_trials_from_workspace(project_names)
+        trials = self.get_trials(project_names)
         for trial in trials:
             trial_results = {}
             if trial["latestValidation"] is not None:
@@ -132,7 +155,7 @@ class Workspace:
             trial_results_dict[idx] = trial_results
         return trial_results_dict
 
-    def get_trial_results_df_from_workspace(
+    def get_trial_results_df(
         self,
         project_names: Optional[Union[Sequence[str], str]] = None,
         validated: bool = False,
@@ -141,7 +164,7 @@ class Workspace:
         provided, only trials from those projects will be returned, otherwise, all trials in the
         workspace will be returned. If validated is True, only validated trials will be returned.
         """
-        trial_results_dict = self.get_trial_results_dict_from_workspace(project_names, validated)
+        trial_results_dict = self.get_trial_results_dict(project_names, validated)
         trial_results_df = pd.DataFrame.from_dict(trial_results_dict, orient="index")
         trial_results_df = trial_results_df[sorted(trial_results_df.columns)]
         return trial_results_df
