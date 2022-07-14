@@ -138,19 +138,21 @@ def build_target_transform(path: str) -> Callable:
     return label_transform
 
 
-def build_transform(
+def build_basic_train_transform(
     dataset_metadata: attrdict.AttrDict,
-    split: str,
     transform_config: Optional[dict] = None,
 ) -> nn.Module:
-    """Generate transforms via timm's transform factory."""
+    """Generate transforms via timm's transform factory, but always using training mode and bicubic
+    interpolation and crop_pct = 0.875. We will also filter the base models on these criteria.  
+    """
     transform_config = transform_config or {}
-    is_training = split == "train"
     return create_transform(
         input_size=dataset_metadata.img_size,
-        is_training=is_training,
+        is_training=False,
         mean=dataset_metadata.mean,
         std=dataset_metadata.std,
+        interpolation="bicubic",
+        crop_pct=0.875,
         **transform_config,
     )
 
@@ -162,7 +164,7 @@ def get_dataset(
 ) -> Dataset:
     transform_config = transform_config or {}
     dataset_metadata = DATASET_METADATA_BY_NAME[name].to_attrdict()
-    transform = build_transform(dataset_metadata, split=split, transform_config=transform_config)
+    transform = build_basic_train_transform(dataset_metadata, transform_config=transform_config)
     if dataset_metadata.dataset_class == RAMImageFolder:
         root = dataset_metadata.root + "/" + split
         target_transform = build_target_transform(dataset_metadata.target_transform_path)
