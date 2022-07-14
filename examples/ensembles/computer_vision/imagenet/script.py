@@ -26,11 +26,13 @@ parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
 args = parser.parse_args()
 
+# Generate name from command line arguments, if none provided.
+generate_names = args.name == ""
 client.login(master=args.master, user=args.user, password=args.password)
 
+print(args.num_base_models)
 for num_base_models in args.num_base_models:
-    # Generate name from command line arguments, if none provided.
-    if not args.name:
+    if generate_names:
         args.name = f"{args.model_criteria}_{args.ensemble_strategy}_{num_base_models}"
 
     config = {
