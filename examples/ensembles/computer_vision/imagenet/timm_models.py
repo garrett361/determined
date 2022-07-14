@@ -29,7 +29,8 @@ def get_timm_ensembles_of_model_names(
     offset: int = 0,
 ) -> List[List[str]]:
     """Returns num_ensembles unique ensembles of timm model names, each comprising of
-    num_base_models models.  Use num_ensembles = -1 to get all possible ensembles.
+    num_base_models models.  Use num_base_models = -1 to use all possible base models and/or
+    num_ensembles = -1 to get all possible ensembles.
     """
     if model_criteria == "top":
         base_models = top_timm_models
@@ -40,6 +41,8 @@ def get_timm_ensembles_of_model_names(
     assert (
         len(base_models) >= num_base_models
     ), f"num_base_models cannot be greater than {len(base_models)}, the number of base models."
+    if num_base_models == -1:
+        num_base_models = len(base_models)
     if num_ensembles == -1:
         ensembles = list(itertools.combinations(base_models.keys(), num_base_models))
     else:
