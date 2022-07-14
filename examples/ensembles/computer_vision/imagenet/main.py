@@ -29,7 +29,7 @@ def main(core_context, hparams) -> None:
         val_dataset=val_dataset,
         ensemble_strategy=hparams.ensemble_strategy,
         ensemble_args=None,
-        val_logging_data=hparams,
+        extra_val_log_metrics=hparams,
         sanity_check=hparams.sanity_check,
     )
     print("Building ensemble...")

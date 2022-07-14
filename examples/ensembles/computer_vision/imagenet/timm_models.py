@@ -38,8 +38,6 @@ timm_smallest_models_75_top1_masked = [
     "mixnet_m",
 ]
 
-base_models = {"best": timm_best_models, "smallest": timm_smallest_models_75_top1_masked}
-
 
 def get_timm_ensembles_of_model_names(
     model_criteria: Literal["best", "smallest"],
