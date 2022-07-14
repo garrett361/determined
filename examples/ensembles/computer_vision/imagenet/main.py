@@ -19,7 +19,7 @@ def main(core_context, hparams) -> None:
     print(f"Building val_dataset")
     val_dataset = data.get_dataset(name=hparams.dataset_name, split="val")
 
-    model_list = timm_models.build_timm_model_list(hparams.model_names, pretrained=True)
+    model_list = timm_models.build_timm_model_list(hparams.model_names)
     trainer = ensemble_trainer.EnsembleTrainer(
         core_context,
         model_list=model_list,
