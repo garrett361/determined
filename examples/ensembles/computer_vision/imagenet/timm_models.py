@@ -12,31 +12,33 @@ import timm
 import torch.nn as nn
 
 
-timm_best_models = [
-    "beit_large_patch16_512",
-    "beit_large_patch16_384",
-    "tf_efficientnet_l2_ns",
-    "tf_efficientnet_l2_ns_475",
-    "convnext_xlarge_384_in22ft1k",
-    "beit_large_patch16_224",
-    "convnext_large_384_in22ft1k",
-    "swin_large_patch4_window12_384",
-    "vit_large_patch16_384",
-    "volo_d5_512",
-]
+timm_best_models = {
+    "beit_large_patch16_512": "",
+    "beit_large_patch16_384": "",
+    "tf_efficientnet_l2_ns": "",
+    "tf_efficientnet_l2_ns_475": "",
+    "convnext_xlarge_384_in22ft1k": "",
+    "beit_large_patch16_224": "",
+    "convnext_large_384_in22ft1k": "",
+    "swin_large_patch4_window12_384": "",
+    "vit_large_patch16_384": "",
+    "volo_d5_512": "",
+}
 
-timm_smallest_models_75_top1_masked = [
-    "xcit_nano_12_p16_384_dist",
-    "xcit_nano_12_p8_384_dist",
-    "xcit_nano_12_p8_224_dist",
-    "semnasnet_100",
-    "mixnet_s",
-    "tf_mixnet_s",
-    "mobilenetv2_110d",
-    "efficientnet_lite0",
-    "rexnet_100",
-    "mixnet_m",
-]
+timm_smallest_models_75_top1_masked = {
+    "xcit_nano_12_p16_384_dist": "xcit_nano_12_p16_384_dist.pth",
+    "xcit_nano_12_p8_384_dist": "xcit_nano_12_p8_384_dist.pth",
+    "xcit_nano_12_p8_224_dist": "xcit_nano_12_p8_224_dist.pth",
+    "semnasnet_100": "mnasnet_a1-d9418771.pth",
+    "mixnet_s": "mixnet_s-a907afbc.pth",
+    "tf_mixnet_s": "tf_mixnet_s-89d3354b.pth",
+    "mobilenetv2_110d": "mobilenetv2_110d_ra-77090ade.pth",
+    "efficientnet_lite0": "efficientnet_lite0_ra-37913777.pth",
+    "rexnet_100": "rexnetv1_100-1b4dddf4.pth",
+    "mixnet_m": "mixnet_m-4647fc68.pth",
+}
+
+all_models = {**timm_best_models, **timm_smallest_models_75_top1_masked}
 
 
 def get_timm_ensembles_of_model_names(
@@ -59,7 +61,7 @@ def get_timm_ensembles_of_model_names(
         len(base_models) >= num_base_models
     ), f"num_base_models cannot be greater than {len(base_models)}, the number of base models."
     if num_ensembles == -1:
-        ensembles = list(itertools.combinations(base_models, num_base_models))
+        ensembles = list(itertools.combinations(base_models.keys(), num_base_models))
     else:
         max_ensembles = math.comb(len(base_models), num_base_models)
         assert num_ensembles <= max_ensembles, (
@@ -71,18 +73,22 @@ def get_timm_ensembles_of_model_names(
         ensembles = []
         for _ in range(num_ensembles + offset):
             while True:
-                new_ensemble = sorted(random.sample(base_models, k=num_base_models))
+                new_ensemble = sorted(random.sample(base_models.keys(), k=num_base_models))
                 if new_ensemble not in ensembles:
                     ensembles.append(new_ensemble)
                     break
     return ensembles[offset:]
 
 
-def build_timm_model_list(model_names: List[str], pretrained: bool = True) -> List[nn.Module]:
+def build_timm_model_list(
+    model_names: List[str], checkpoint_path_prefix: str = "shared_fs/state_dicts/checkpoints/"
+) -> List[nn.Module]:
     """Returns a list of models, each of which is a timm model."""
     models = []
     for model_name in model_names:
         print(f"Building model {model_name}...")
-        model = timm.create_model(model_name, pretrained=pretrained)
+        checkpoint_path = checkpoint_path_prefix + all_models[model_name]
+        print(checkpoint_path)
+        model = timm.create_model(model_name, checkpoint_path=checkpoint_path)
         models.append(model)
     return models
