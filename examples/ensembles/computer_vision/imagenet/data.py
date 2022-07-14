@@ -143,7 +143,7 @@ def build_basic_train_transform(
     transform_config: Optional[dict] = None,
 ) -> nn.Module:
     """Generate transforms via timm's transform factory, but always using training mode and bicubic
-    interpolation and crop_pct = 0.875. We will also filter the base models on these criteria.  
+    interpolation and crop_pct = 0.875. We will also filter the base models on these criteria.
     """
     transform_config = transform_config or {}
     return create_transform(
