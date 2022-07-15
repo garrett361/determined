@@ -2,7 +2,8 @@ import json
 from typing import Any, Dict, List, Union, Sequence, Set, Optional
 import pandas as pd
 import requests
-import sys
+
+GET_LIMIT = 2 ** 16
 
 
 class Workspace:
@@ -30,7 +31,7 @@ class Workspace:
 
     def get_projects(self) -> List[Dict[str, Any]]:
         url = f"{self.master_url}/api/v1/workspaces/{self.workspace_id}/projects"
-        response = requests.get(url, params={"limit": 2 ** 16}, headers=self.py_request_headers)
+        response = requests.get(url, params={"limit": GET_LIMIT}, headers=self.py_request_headers)
         projects = json.loads(response.content)["projects"]
         return projects
 
@@ -54,7 +55,9 @@ class Workspace:
         exps = []
         for pid in project_ids:
             url = f"{self.master_url}/api/v1/projects/{pid}/experiments"
-            response = requests.get(url, params={"limit": 2 ** 16}, headers=self.py_request_headers)
+            response = requests.get(
+                url, params={"limit": GET_LIMIT}, headers=self.py_request_headers
+            )
             pid_exp = json.loads(response.content)["experiments"]
             exps += pid_exp
         return exps
@@ -75,42 +78,46 @@ class Workspace:
                 trials.append(trial)
         return trials
 
-    def get_trial_results_dict(
-        self,
-        project_names: Optional[Union[Sequence[str], str]] = None,
-        validated: bool = False,
+    def get_trial_latest_val_results_dict(
+        self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> Dict[int, Dict[str, Any]]:
-        """Returns a dict of all trial results, indexed by trial ID.  If project_names is provided,
-        only trials from those projects will be returned, otherwise, all trials in the workspace
-        will be returned. If validated is True, only validated trials will be returned.
+        """Returns a dict summarizing the latest validation for trial in the workspace, indexed by
+        trial ID.  If project_names is provided, only trials from those projects will be returned,
+        otherwise, all trials in the workspace will be returned.
         """
         trial_results_dict = {}
         trials = self.get_trials(project_names)
         for trial in trials:
-            trial_results = {}
-            if trial["latestValidation"] is not None:
-                trial_results = trial["latestValidation"]["metrics"]
-            elif validated:
+            if trial["latestValidation"] is None:
                 continue
+            trial_results = trial["latestValidation"]["metrics"]
             trial_results["wall_clock_time"] = trial["wallClockTime"]
             trial_results["experiment_id"] = trial["experimentId"]
             idx = trial["id"]
             trial_results_dict[idx] = trial_results
         return trial_results_dict
 
-    def get_trial_results_df(
-        self,
-        project_names: Optional[Union[Sequence[str], str]] = None,
-        validated: bool = False,
+    def get_trial_latest_val_results_df(
+        self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> pd.DataFrame:
-        """Returns a DataFrame of all trial results, indexed by trial ID.  If project_names is
-        provided, only trials from those projects will be returned, otherwise, all trials in the
-        workspace will be returned. If validated is True, only validated trials will be returned.
+        """Returns a DataFrame summarizing the latest validation for trials in the workspace,
+        indexed by trial ID.  If project_names is provided, only trials from those projects will be
+        returned, otherwise, all trials in the workspace will be returned.
         """
-        trial_results_dict = self.get_trial_results_dict(project_names, validated)
+        trial_results_dict = self.get_trial_latest_val_results_dict(project_names)
         trial_results_df = pd.DataFrame.from_dict(trial_results_dict, orient="index")
         trial_results_df = trial_results_df[sorted(trial_results_df.columns)]
         return trial_results_df
+
+    def delete_all_experiments(
+        self, project_names: Union[Sequence[str], str], confirm: bool = False
+    ) -> None:
+        if not confirm:
+            raise ValueError("Please confirm deletion of all experiments.")
+        experiment_ids = self._get_experiment_ids(project_names)
+        for idx in experiment_ids:
+            url = f"{self.master_url}/api/v1/experiments/{idx}"
+            requests.delete(url, headers=self.py_request_headers)
 
     def _get_login_token(self) -> str:
         auth = json.dumps({"username": self.username, "password": self.password})
@@ -165,7 +172,18 @@ class Workspace:
         else:
             project_names = set(project_names)
         project_ids = set()
-        for project in workspace_projects:
-            if project["name"] in project_names:
-                project_ids.add(project["id"])
+        for wp in workspace_projects:
+            wp_name = wp["name"]
+            if wp_name in project_names:
+                project_ids.add(wp["id"])
+                project_names.remove(wp_name)
+        if project_names:
+            raise KeyError(f"Projects {project_names} not found in workspace.")
         return project_ids
+
+    def _get_experiment_ids(
+        self, project_names: Optional[Union[Sequence[str], str]] = None
+    ) -> List[Dict[str, Any]]:
+        experiments = self.get_experiments(project_names)
+        experiment_ids = [e["id"] for e in experiments]
+        return experiment_ids
