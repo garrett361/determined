@@ -9,6 +9,8 @@ from torch.utils.data import Dataset, DataLoader, SequentialSampler, RandomSampl
 from torch.utils.data.distributed import DistributedSampler
 import torchmetrics
 
+import data
+
 MAX_EXP_ARG = 88.0
 
 
@@ -30,8 +32,7 @@ class EnsembleTrainer(nn.Module):
         model_list: List[nn.Module],
         train_batch_size: int,
         val_batch_size: int,
-        val_dataset: Dataset,
-        train_dataset: Optional[Dataset] = None,
+        dataset_name: str,
         ensemble_strategy: str = "naive",
         ensemble_args: Optional[dict] = None,
         extra_val_log_metrics: Dict[str, Any] = None,
@@ -44,8 +45,7 @@ class EnsembleTrainer(nn.Module):
         self.models.eval()
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
-        self.train_dataset = train_dataset
-        self.val_dataset = val_dataset
+        self.dataset_name = dataset_name
         self.ensemble_strategy = ensemble_strategy
         self.ensemble_args = ensemble_args or {}
         self.extra_val_log_metrics = extra_val_log_metrics or {}
@@ -67,6 +67,20 @@ class EnsembleTrainer(nn.Module):
             dist.init_process_group("nccl")
             self.models = DDP(self.models, device_ids=[self.rank])
 
+        # Mark which strategies require training:
+        requires_training_strategies = {"vbmc"}
+        self.requires_training = self.ensemble_strategy in requires_training_strategies
+
+        if self.requires_training:
+            print(f"Building train_dataset")
+            train_dataset = data.get_dataset(name=self.dataset_name, split="train")
+        else:
+            print(f"Skipping building train_dataset")
+            self.train_dataset = None
+
+        print(f"Building val_dataset")
+        self.val_dataset = data.get_dataset(name=self.dataset_name, split="val")
+
         self.trained_batches = 0
         self.train_loader = self.build_train_loader()
         self.val_loader = self.build_val_loader()
@@ -83,13 +97,7 @@ class EnsembleTrainer(nn.Module):
                 self._build_majority_vote, self._majority_vote_pred_fn
             ),
         }
-        # Mark which strategies require training:
-        requires_training_strategies = {"vbmc"}
-        if self.train_dataset is None and self.ensemble_strategy in requires_training_strategies:
-            raise ValueError(
-                f"Ensemble strategy {self.ensemble_strategy} requires training data, but no training"
-                f" data was provided."
-            )
+
         # There can be multiple notions of weights for different ensemble strategies..
         self._ensemble_weights = None
         self._model_weights = None

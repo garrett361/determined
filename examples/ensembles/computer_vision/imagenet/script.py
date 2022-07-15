@@ -38,7 +38,6 @@ parser.add_argument("-ne", "--num_ensembles", type=int, default=0)
 parser.add_argument("-o", "--offset", type=int, default=0)
 parser.add_argument("-tb", "--train_batch_size", type=int, default=128)
 parser.add_argument("-vb", "--val_batch_size", type=int, default=256)
-parser.add_argument("-st", "--skip_train", action="store_true")
 parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-lm", "--list_models", action="store_true")
@@ -106,7 +105,6 @@ for num_base_models in args.num_base_models:
             "train_batch_size": args.train_batch_size,
             "val_batch_size": args.val_batch_size,
             "dataset_name": args.dataset_name,
-            "skip_train": args.skip_train,
             "ensemble_strategy": args.ensemble_strategy,
             "model_criteria": args.model_criteria,
             "sanity_check": args.sanity_check,
