@@ -42,6 +42,7 @@ parser.add_argument("-st", "--skip_train", action="store_true")
 parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-lm", "--list_models", action="store_true")
+parser.add_argument("-nc", "--num_combinations", nargs="*", action="store")
 args = parser.parse_args()
 
 if args.model_names and (args.num_base_models or args.num_ensembles or args.model_criteria):
@@ -109,6 +110,7 @@ for num_base_models in args.num_base_models:
             "ensemble_strategy": args.ensemble_strategy,
             "model_criteria": args.model_criteria,
             "sanity_check": args.sanity_check,
+            "sanity_check": args.num_combinations,
             "num_base_models": num_base_models,
             "checkpoint_path_prefix": args.checkpoint_path_prefix,
         },
