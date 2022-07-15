@@ -20,13 +20,23 @@ with open("top_timm_models.pkl", "rb") as f:
 
 all_models = {**small_timm_models, **top_timm_models}
 
+model_criteria_map = {"small": small_timm_models, "top": top_timm_models, "all": all_models}
+
+
+def get_model_names_from_criteria(model_criteria: Literal["top", "small", "all"]) -> List[str]:
+    return list(model_criteria_map[model_criteria])
+
 
 def get_all_model_names() -> List[str]:
-    return list(all_models.keys())
+    return list(all_models)
+
+
+def get_all_model_names() -> List[str]:
+    return list(all_models)
 
 
 def get_timm_ensembles_of_model_names(
-    model_criteria: Literal["top", "small"],
+    model_criteria: Literal["top", "small", "all"],
     num_base_models: int,
     num_ensembles: int,
     seed: int = 42,
@@ -36,11 +46,9 @@ def get_timm_ensembles_of_model_names(
     num_base_models models.  Use num_base_models = -1 to use all possible base models and/or
     num_ensembles = -1 to get all possible ensembles.
     """
-    if model_criteria == "top":
-        base_models = top_timm_models
-    elif model_criteria == "small":
-        base_models = small_timm_models
-    else:
+    try:
+        base_models = model_criteria_map[model_criteria]
+    except KeyError:
         raise ValueError(f"Unknown model_criteria: {model_criteria}")
     assert (
         len(base_models) >= num_base_models
@@ -48,7 +56,7 @@ def get_timm_ensembles_of_model_names(
     if num_base_models == -1:
         num_base_models = len(base_models)
     if num_ensembles == -1:
-        ensembles = list(itertools.combinations(base_models.keys(), num_base_models))
+        ensembles = list(itertools.combinations(base_models, num_base_models))
     else:
         max_ensembles = math.comb(len(base_models), num_base_models)
         assert num_ensembles + offset <= max_ensembles, (
