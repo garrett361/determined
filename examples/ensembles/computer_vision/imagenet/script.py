@@ -1,10 +1,26 @@
 import argparse
+import contextlib
+import math
+import os
+import sys
 
-import attrdict
 from determined.experimental import client
+import tqdm
 
 import timm_models
 import workspaces
+
+
+@contextlib.contextmanager
+def suppress_stdout():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+
 
 parser = argparse.ArgumentParser(description="ImageNet Ensemble Loops")
 parser.add_argument("-m", "--master", type=str, default="localhost:8080")
@@ -33,6 +49,7 @@ if args.model_names and (args.num_base_models or args.num_ensembles or args.mode
         "Setting --model_names is mutually exclusive with setting --num_base_models,"
         " --num_ensembles, or --model_criteria"
     )
+
 if args.model_names:
     args.num_base_models = [len(args.model_names)]
     args.num_ensembles = 1
@@ -44,14 +61,19 @@ if args.list_models:
 
 client.login(master=args.master, user=args.user, password=args.password)
 
-# TODO: Add print for -1 case
 if args.num_ensembles != -1:
-    print(
-        80 * "-",
-        f"Submitting {len(args.num_base_models) * args.num_ensembles} experiment(s).",
-        80 * "-",
-        sep="\n",
-    )
+    num_experiments = len(args.num_base_models) * args.num_ensembles
+else:
+    base_model_collection_size = len(timm_models.get_model_names_from_criteria(args.model_criteria))
+    num_experiments = sum(math.comb(base_model_collection_size, n) for n in args.num_base_models)
+
+s_or_blank = "s" if num_experiments != 1 else ""
+print(
+    80 * "-",
+    f"Submitting {num_experiments} {args.ensemble_strategy} experiment{s_or_blank}.",
+    80 * "-",
+    sep="\n",
+)
 
 for num_base_models in args.num_base_models:
     if generate_names:
@@ -102,11 +124,8 @@ for num_base_models in args.num_base_models:
             num_ensembles=args.num_ensembles,
             offset=args.offset,
         )
-
-    for model_names in ensembles:
+    desc = f"{num_base_models} model{'s' if num_base_models != 1 else ''} ensembles"
+    for model_names in tqdm.tqdm(ensembles, desc=desc):
         config["hyperparameters"]["model_names"] = model_names
-        client.create_experiment(config=config, model_dir=".")
-        print(
-            f"{num_base_models} models in ensemble: {config['hyperparameters']['model_names']}",
-            "\n",
-        )
+        with suppress_stdout():
+            client.create_experiment(config=config, model_dir=".")
