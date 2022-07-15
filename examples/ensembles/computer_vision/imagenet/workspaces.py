@@ -29,11 +29,16 @@ class Workspace:
             self._create_workspace(workspace_name)
         self.workspace_id = self._get_workspace_id()
 
-    def get_projects(self) -> List[Dict[str, Any]]:
+    def get_all_projects(self) -> List[Dict[str, Any]]:
         url = f"{self.master_url}/api/v1/workspaces/{self.workspace_id}/projects"
         response = requests.get(url, params={"limit": GET_LIMIT}, headers=self.py_request_headers)
         projects = json.loads(response.content)["projects"]
         return projects
+
+    def get_all_project_names(self) -> List[str]:
+        projects = self.get_all_projects()
+        names = [p["name"] for p in projects]
+        return names
 
     def create_project(self, project_name: str, description: str = "") -> None:
         """Creates a new project in the workspace, if it doesn't already exist."""
@@ -164,7 +169,7 @@ class Workspace:
     def _get_project_ids(
         self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> Set[int]:
-        workspace_projects = self.get_projects()
+        workspace_projects = self.get_all_projects()
         if project_names is None:
             project_names = {wp["name"] for wp in workspace_projects}
         elif isinstance(project_names, str):
