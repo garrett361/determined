@@ -38,10 +38,10 @@ parser.add_argument("-ne", "--num_ensembles", type=int, default=0)
 parser.add_argument("-o", "--offset", type=int, default=0)
 parser.add_argument("-tb", "--train_batch_size", type=int, default=128)
 parser.add_argument("-vb", "--val_batch_size", type=int, default=256)
+parser.add_argument("-nc", "--num_combinations", type=int, default=None)
 parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-lm", "--list_models", action="store_true")
-parser.add_argument("-nc", "--num_combinations", nargs="*", action="store")
 args = parser.parse_args()
 
 if args.model_names and (args.num_base_models or args.num_ensembles or args.model_criteria):
