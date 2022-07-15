@@ -11,29 +11,53 @@ parser.add_argument("-m", "--master", type=str, default="localhost:8080")
 parser.add_argument("-u", "--user", type=str, default="determined")
 parser.add_argument("-p", "--password", type=str, default="")
 parser.add_argument("-d", "--dataset_name", type=str, default="imagenette2-160")
-parser.add_argument("-es", "--ensemble_strategy", type=str, default="naive")
-parser.add_argument("-mc", "--model_criteria", type=str, default="small")
+parser.add_argument("-es", "--ensemble_strategy", type=str, default="")
+parser.add_argument("-mc", "--model_criteria", type=str, default="")
 parser.add_argument("-n", "--name", type=str, default="")
 parser.add_argument("-w", "--workspace", type=str, default="Ensembling")
+parser.add_argument("-mn", "--model_names", nargs="+", type=str, default=[])
+parser.add_argument("-nb", "--num_base_models", nargs="+", type=int, default=[])
 parser.add_argument("-cpp", "--checkpoint_path_prefix", type=str, default="shared_fs/state_dicts/")
-parser.add_argument("-nb", "--num_base_models", nargs="+", type=int)
-parser.add_argument("-ne", "--num_ensembles", type=int, default=1)
+parser.add_argument("-ne", "--num_ensembles", type=int, default=0)
 parser.add_argument("-o", "--offset", type=int, default=0)
 parser.add_argument("-tb", "--train_batch_size", type=int, default=128)
 parser.add_argument("-vb", "--val_batch_size", type=int, default=256)
 parser.add_argument("-st", "--skip_train", action="store_true")
 parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
+parser.add_argument("-lm", "--list_models", action="store_true")
 args = parser.parse_args()
+
+if args.model_names and (args.num_base_models or args.num_ensembles or args.model_criteria):
+    raise ValueError(
+        "Setting --model_names is mutually exclusive with setting --num_base_models,"
+        " --num_ensembles, or --model_criteria"
+    )
+if args.model_names:
+    args.num_base_models = [len(args.model_names)]
+    args.num_ensembles = 1
 
 # Generate name from command line arguments, if none provided.
 generate_names = args.name == ""
-client.login(master=args.master, user=args.user, password=args.password)
+if args.list_models:
+    print(timm_models.get_all_model_names())
 
-print(args.num_base_models)
+client.login(master=args.master, user=args.user, password=args.password)
+print(
+    80 * "-",
+    f"Submitting {len(args.num_base_models) * args.num_ensembles} experiments",
+    80 * "-",
+    sep="\n",
+)
+
 for num_base_models in args.num_base_models:
     if generate_names:
-        args.name = f"{args.model_criteria}_{args.ensemble_strategy}_{num_base_models}"
+        name_components = [
+            f"{'manual' if args.model_names else args.model_criteria}",
+            f"{args.ensemble_strategy}",
+            f"{num_base_models}",
+        ]
+        args.name = "_".join(name_components)
 
     config = {
         "entrypoint": "python -m determined.launch.torch_distributed -- python -m main",
@@ -66,12 +90,15 @@ for num_base_models in args.num_base_models:
     )
     workspace.create_project(config["project"])
 
-    ensembles = timm_models.get_timm_ensembles_of_model_names(
-        model_criteria=args.model_criteria,
-        num_base_models=num_base_models,
-        num_ensembles=args.num_ensembles,
-        offset=args.offset,
-    )
+    if args.model_names:
+        ensembles = args.model_names
+    else:
+        ensembles = timm_models.get_timm_ensembles_of_model_names(
+            model_criteria=args.model_criteria,
+            num_base_models=num_base_models,
+            num_ensembles=args.num_ensembles,
+            offset=args.offset,
+        )
 
     for model_names in ensembles:
         config["hyperparameters"]["model_names"] = model_names

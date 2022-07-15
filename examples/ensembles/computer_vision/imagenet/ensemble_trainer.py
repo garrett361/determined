@@ -25,9 +25,8 @@ class EnsembleTrainer(nn.Module):
     ) -> None:
         super().__init__()
         self.core_context = core_context
-        for model in model_list:
-            model.eval()
         self.models = nn.ModuleList(model_list)
+        self.models.eval()
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
         self.train_dataset = train_dataset
@@ -43,7 +42,11 @@ class EnsembleTrainer(nn.Module):
         self.is_distributed = core_context.distributed.size > 1
         self.is_chief = self.rank == 0
         self.device = f"cuda:{self.rank}"
+        # Move, freeze, and eval, all models.
         self.models.to(self.device)
+        for param in self.models.parameters():
+            param.requires_grad = False
+        self.models.eval()
         if self.is_distributed:
             dist.init_process_group("nccl")
             self.models = DDP(self.models, device_ids=[self.rank])

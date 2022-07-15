@@ -21,6 +21,10 @@ with open("top_timm_models.pkl", "rb") as f:
 all_models = {**small_timm_models, **top_timm_models}
 
 
+def get_all_model_names() -> List[str]:
+    return list(all_models.keys())
+
+
 def get_timm_ensembles_of_model_names(
     model_criteria: Literal["top", "small"],
     num_base_models: int,
@@ -47,9 +51,10 @@ def get_timm_ensembles_of_model_names(
         ensembles = list(itertools.combinations(base_models.keys(), num_base_models))
     else:
         max_ensembles = math.comb(len(base_models), num_base_models)
-        assert num_ensembles <= max_ensembles, (
-            f"num_ensembles is greater than {max_ensembles}, the maximum number possible ensembles of"
-            f" size {num_base_models} drawn from {len(base_models)} options."
+        assert num_ensembles + offset <= max_ensembles, (
+            f"num_ensembles (plus the offset of {offset}) is greater than {max_ensembles}, the"
+            f"maximum number possible ensembles of size {num_base_models} drawn from"
+            f" {len(base_models)} options."
         )
 
         random.seed(seed)

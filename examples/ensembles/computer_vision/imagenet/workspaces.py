@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, List, Union, Sequence, Set, Optional
 import pandas as pd
 import requests
+import sys
 
 
 class Workspace:
@@ -27,51 +28,9 @@ class Workspace:
             self._create_workspace(workspace_name)
         self.workspace_id = self._get_workspace_id()
 
-    def _get_login_token(self) -> str:
-        auth = json.dumps({"username": self.username, "password": self.password})
-        login_url = f"{self.master_url}/login"
-        try:
-            response = requests.post(login_url, data=auth)
-        except KeyError:
-            print(f"Failed to log in to {self.master_url}. Is Determined running?")
-            return
-        token = response.json()["token"]
-        return token
-
-    def _get_py_request_headers(self) -> Dict[str, str]:
-        return dict(Cookie=f"auth={self.token}")
-
-    def _create_workspace(self, workspace_name: str) -> None:
-        """Creates a new workspace, if it doesn't already exist."""
-        workspace_id = None
-        try:
-            workspace_id = self._get_workspace_id()
-        except ValueError:
-            url = f"{self.master_url}/api/v1/workspaces"
-            workspace_dict = {
-                "name": workspace_name,
-            }
-            requests.post(url, headers=self.py_request_headers, json=workspace_dict)
-            print(f"Created workspace {workspace_name}.")
-        if workspace_id is not None:
-            print(f"Workspace {workspace_name} already exists.")
-
-    def _get_workspace_id(self) -> int:
-        url = f"{self.master_url}/api/v1/workspaces"
-        response = requests.get(url, headers=self.py_request_headers)
-        data = json.loads(response.content)
-        workspace_id = None
-        for workspace in data["workspaces"]:
-            if workspace["name"] == self.workspace_name:
-                workspace_id = workspace["id"]
-                break
-        if workspace_id is None:
-            raise ValueError(f"{self.workspace_name} workspace not found!")
-        return workspace_id
-
     def get_projects(self) -> List[Dict[str, Any]]:
         url = f"{self.master_url}/api/v1/workspaces/{self.workspace_id}/projects"
-        response = requests.get(url, headers=self.py_request_headers)
+        response = requests.get(url, params={"limit": 2 ** 16}, headers=self.py_request_headers)
         projects = json.loads(response.content)["projects"]
         return projects
 
@@ -88,22 +47,6 @@ class Workspace:
         }
         requests.post(url, headers=self.py_request_headers, json=project_dict)
 
-    def _get_project_ids(
-        self, project_names: Optional[Union[Sequence[str], str]] = None
-    ) -> Set[int]:
-        workspace_projects = self.get_projects()
-        if project_names is None:
-            project_names = {wp["name"] for wp in workspace_projects}
-        elif isinstance(project_names, str):
-            project_names = {project_names}
-        else:
-            project_names = set(project_names)
-        project_ids = set()
-        for project in workspace_projects:
-            if project["name"] in project_names:
-                project_ids.add(project["id"])
-        return project_ids
-
     def get_experiments(
         self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> List[Dict[str, Any]]:
@@ -111,7 +54,7 @@ class Workspace:
         exps = []
         for pid in project_ids:
             url = f"{self.master_url}/api/v1/projects/{pid}/experiments"
-            response = requests.get(url, headers=self.py_request_headers)
+            response = requests.get(url, params={"limit": 2 ** 16}, headers=self.py_request_headers)
             pid_exp = json.loads(response.content)["experiments"]
             exps += pid_exp
         return exps
@@ -168,3 +111,61 @@ class Workspace:
         trial_results_df = pd.DataFrame.from_dict(trial_results_dict, orient="index")
         trial_results_df = trial_results_df[sorted(trial_results_df.columns)]
         return trial_results_df
+
+    def _get_login_token(self) -> str:
+        auth = json.dumps({"username": self.username, "password": self.password})
+        login_url = f"{self.master_url}/login"
+        try:
+            response = requests.post(login_url, data=auth)
+        except KeyError:
+            print(f"Failed to log in to {self.master_url}. Is master running?")
+            return
+        token = response.json()["token"]
+        return token
+
+    def _get_py_request_headers(self) -> Dict[str, str]:
+        return dict(Cookie=f"auth={self.token}")
+
+    def _create_workspace(self, workspace_name: str) -> None:
+        """Creates a new workspace, if it doesn't already exist."""
+        workspace_id = None
+        try:
+            workspace_id = self._get_workspace_id()
+        except ValueError:
+            url = f"{self.master_url}/api/v1/workspaces"
+            workspace_dict = {
+                "name": workspace_name,
+            }
+            requests.post(url, headers=self.py_request_headers, json=workspace_dict)
+            print(f"Created workspace {workspace_name}.")
+        if workspace_id is not None:
+            print(f"Workspace {workspace_name} already exists.")
+
+    def _get_workspace_id(self) -> int:
+        url = f"{self.master_url}/api/v1/workspaces"
+        response = requests.get(url, headers=self.py_request_headers)
+        data = json.loads(response.content)
+        workspace_id = None
+        for workspace in data["workspaces"]:
+            if workspace["name"] == self.workspace_name:
+                workspace_id = workspace["id"]
+                break
+        if workspace_id is None:
+            raise ValueError(f"{self.workspace_name} workspace not found!")
+        return workspace_id
+
+    def _get_project_ids(
+        self, project_names: Optional[Union[Sequence[str], str]] = None
+    ) -> Set[int]:
+        workspace_projects = self.get_projects()
+        if project_names is None:
+            project_names = {wp["name"] for wp in workspace_projects}
+        elif isinstance(project_names, str):
+            project_names = {project_names}
+        else:
+            project_names = set(project_names)
+        project_ids = set()
+        for project in workspace_projects:
+            if project["name"] in project_names:
+                project_ids.add(project["id"])
+        return project_ids
