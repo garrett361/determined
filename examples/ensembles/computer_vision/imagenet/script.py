@@ -43,12 +43,15 @@ if args.list_models:
     print(timm_models.get_all_model_names())
 
 client.login(master=args.master, user=args.user, password=args.password)
-print(
-    80 * "-",
-    f"Submitting {len(args.num_base_models) * args.num_ensembles} experiment(s).",
-    80 * "-",
-    sep="\n",
-)
+
+# TODO: Add print for -1 case
+if args.num_ensembles != -1:
+    print(
+        80 * "-",
+        f"Submitting {len(args.num_base_models) * args.num_ensembles} experiment(s).",
+        80 * "-",
+        sep="\n",
+    )
 
 for num_base_models in args.num_base_models:
     if generate_names:
