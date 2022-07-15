@@ -67,6 +67,13 @@ else:
     base_model_collection_size = len(timm_models.get_model_names_from_criteria(args.model_criteria))
     num_experiments = sum(math.comb(base_model_collection_size, n) for n in args.num_base_models)
 
+# Safety valve for accidentally running a lot of experiments.
+if num_experiments > 500:
+    confirm = input(f"Submit {num_experiments} experiments? [yes/N]\n")
+    if confirm != "yes":
+        sys.exit("Cancelling experiment creation.")
+
+
 s_or_blank = "s" if num_experiments != 1 else ""
 print(
     80 * "-",
