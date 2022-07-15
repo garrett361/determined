@@ -45,7 +45,7 @@ if args.list_models:
 client.login(master=args.master, user=args.user, password=args.password)
 print(
     80 * "-",
-    f"Submitting {len(args.num_base_models) * args.num_ensembles} experiments",
+    f"Submitting {len(args.num_base_models) * args.num_ensembles} experiment(s).",
     80 * "-",
     sep="\n",
 )
@@ -91,7 +91,7 @@ for num_base_models in args.num_base_models:
     workspace.create_project(config["project"])
 
     if args.model_names:
-        ensembles = args.model_names
+        ensembles = [args.model_names]
     else:
         ensembles = timm_models.get_timm_ensembles_of_model_names(
             model_criteria=args.model_criteria,
