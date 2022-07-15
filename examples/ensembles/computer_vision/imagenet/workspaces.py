@@ -29,9 +29,15 @@ class Workspace:
             self._create_workspace(workspace_name)
         self.workspace_id = self._get_workspace_id()
 
+    def _session(self) -> requests.Session:
+        s = requests.Session()
+        s.headers = self.py_request_headers
+        return s
+
     def get_all_projects(self) -> List[Dict[str, Any]]:
         url = f"{self.master_url}/api/v1/workspaces/{self.workspace_id}/projects"
-        response = requests.get(url, params={"limit": GET_LIMIT}, headers=self.py_request_headers)
+        with self._session() as s:
+            response = s.get(url, params={"limit": GET_LIMIT})
         projects = json.loads(response.content)["projects"]
         return projects
 
@@ -51,20 +57,20 @@ class Workspace:
             "description": description,
             "workspaceId": self.workspace_id,
         }
-        requests.post(url, headers=self.py_request_headers, json=project_dict)
+        with self._session() as s:
+            s.post(url, json=project_dict)
 
     def get_experiments(
         self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> List[Dict[str, Any]]:
         project_ids = self._get_project_ids(project_names)
         exps = []
-        for pid in project_ids:
-            url = f"{self.master_url}/api/v1/projects/{pid}/experiments"
-            response = requests.get(
-                url, params={"limit": GET_LIMIT}, headers=self.py_request_headers
-            )
-            pid_exp = json.loads(response.content)["experiments"]
-            exps += pid_exp
+        with self._session() as s:
+            for pid in project_ids:
+                url = f"{self.master_url}/api/v1/projects/{pid}/experiments"
+                response = s.get(url, params={"limit": GET_LIMIT})
+                pid_exp = json.loads(response.content)["experiments"]
+                exps += pid_exp
         return exps
 
     def get_trials(
@@ -75,12 +81,13 @@ class Workspace:
         experiment_ids = [exp["id"] for exp in experiments]
 
         trials = []
-        for idx in experiment_ids:
-            url = f"{self.master_url}/api/v1/experiments/{idx}/trials"
-            response = requests.get(url, headers=self.py_request_headers)
-            data = json.loads(response.content)
-            for trial in data["trials"]:
-                trials.append(trial)
+        with self._session() as s:
+            for idx in experiment_ids:
+                url = f"{self.master_url}/api/v1/experiments/{idx}/trials"
+                response = s.get(url)
+                data = json.loads(response.content)
+                for trial in data["trials"]:
+                    trials.append(trial)
         return trials
 
     def get_trial_latest_val_results_dict(
@@ -123,9 +130,10 @@ class Workspace:
                 f"true_to_confirm_delete flag."
             )
         experiment_ids = self._get_experiment_ids(project_names)
-        for idx in experiment_ids:
-            url = f"{self.master_url}/api/v1/experiments/{idx}"
-            requests.delete(url, headers=self.py_request_headers)
+        with self._session() as s:
+            for idx in experiment_ids:
+                url = f"{self.master_url}/api/v1/experiments/{idx}"
+                s.delete(url)
 
     def _get_login_token(self) -> str:
         auth = json.dumps({"username": self.username, "password": self.password})
@@ -151,14 +159,16 @@ class Workspace:
             workspace_dict = {
                 "name": workspace_name,
             }
-            requests.post(url, headers=self.py_request_headers, json=workspace_dict)
+            with self._session() as s:
+                s.post(url, json=workspace_dict)
             print(f"Created workspace {workspace_name}.")
         if workspace_id is not None:
             print(f"Workspace {workspace_name} already exists.")
 
     def _get_workspace_id(self) -> int:
         url = f"{self.master_url}/api/v1/workspaces"
-        response = requests.get(url, headers=self.py_request_headers)
+        with self._session() as s:
+            response = s.get(url)
         data = json.loads(response.content)
         workspace_id = None
         for workspace in data["workspaces"]:
