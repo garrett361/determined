@@ -110,7 +110,7 @@ for num_base_models in args.num_base_models:
             "ensemble_strategy": args.ensemble_strategy,
             "model_criteria": args.model_criteria,
             "sanity_check": args.sanity_check,
-            "sanity_check": args.num_combinations,
+            "num_combinations": args.num_combinations,
             "num_base_models": num_base_models,
             "checkpoint_path_prefix": args.checkpoint_path_prefix,
         },
