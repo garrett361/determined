@@ -71,6 +71,9 @@ class EnsembleTrainer(nn.Module):
         self._ensemble_strategies = {
             "naive": EnsembleStrategy(self._build_naive, self._naive_prob_fn),
             "naive_logits": EnsembleStrategy(self._build_naive_logits, self._naive_logits_prob_fn),
+            "most_confident": EnsembleStrategy(
+                self._build_most_confident, self._most_confident_prob_fn
+            ),
         }
         self.ensemble_weights = None
 
@@ -107,24 +110,6 @@ class EnsembleTrainer(nn.Module):
 
     def build_ensemble(self) -> None:
         self._ensemble_strategies[self.ensemble_strategy].build(*self.ensemble_args)
-
-    def _build_naive(self) -> None:
-        num_models = len(self.models)
-        self.ensemble_weights = torch.ones(num_models, device=self.device) / num_models
-
-    def _naive_prob_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        model_probs = logits.softmax(dim=1)
-        ensemble_prob = model_probs @ self.ensemble_weights
-        return ensemble_prob
-
-    def _build_naive_logits(self) -> None:
-        num_models = len(self.models)
-        self.ensemble_weights = torch.ones(num_models, device=self.device) / num_models
-
-    def _naive_logits_prob_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        ensemble_logits = logits @ self.ensemble_weights
-        ensemble_prob = ensemble_logits.softmax(dim=1)
-        return ensemble_prob
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         """Returns logits for the models, stacked along the last dimension."""
@@ -182,3 +167,33 @@ class EnsembleTrainer(nn.Module):
         for met in self.accuracy_metrics.values():
             met.reset()
         self.loss_metric.reset()
+
+    def _build_naive(self) -> None:
+        """Average the probabilities of all models with equal weights."""
+        num_models = len(self.models)
+        self.ensemble_weights = torch.ones(num_models, device=self.device) / num_models
+
+    def _naive_prob_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        model_probs = logits.softmax(dim=1)
+        ensemble_prob = model_probs @ self.ensemble_weights
+        return ensemble_prob
+
+    def _build_naive_logits(self) -> None:
+        """Average the logits of all models with equal weights."""
+        num_models = len(self.models)
+        self.ensemble_weights = torch.ones(num_models, device=self.device) / num_models
+
+    def _naive_logits_prob_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        ensemble_logits = logits @ self.ensemble_weights
+        ensemble_prob = ensemble_logits.softmax(dim=1)
+        return ensemble_prob
+
+    def _build_most_confident(self) -> None:
+        """For each sample, use the prediction of the most-confident model."""
+        pass
+
+    def _most_confident_prob_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        ensembles_probs = logits.softmax(dim=1)
+        max_idxs = ensembles_probs.max(dim=1).values.argmax(dim=-1)
+        ensemble_prob = ensembles_probs[torch.arange(len(max_idxs)), ..., max_idxs]
+        return ensemble_prob
