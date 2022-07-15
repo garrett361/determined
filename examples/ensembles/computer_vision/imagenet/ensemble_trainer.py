@@ -1,4 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional
+import warnings
 
 import torch
 import torch.distributed as dist
@@ -7,6 +8,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import Dataset, DataLoader, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 import torchmetrics
+
+MAX_EXP_ARG = 88.0
 
 
 class EnsembleStrategy:
@@ -168,7 +171,14 @@ class EnsembleTrainer(nn.Module):
                     raise ValueError(
                         f"extra_val_log_metrics/val_metrics conflicting keys: {conflicted_keys}"
                     )
+                # Join with extra_val_log_metrics and remove any None-valued metrics with a
+                # warning (these would throw errors).
                 reported_metrics = {**self.extra_val_log_metrics, **computed_metrics}
+                for key in list(reported_metrics):
+                    if reported_metrics[key] is None:
+                        warnings.warn(f"Removing val metric {key} whose value is None.")
+                        reported_metrics.pop(key)
+
                 self.core_context.train.report_validation_metrics(
                     steps_completed=self.trained_batches, metrics=reported_metrics
                 )
@@ -268,13 +278,21 @@ class EnsembleTrainer(nn.Module):
                 loss = vbmc_criterion(log_probs, labels).sum(dim=0)
                 # Subtract loss to get *positive* log-likelihood sum.
                 self._log_likelihoods -= loss
+                self.trained_batches += 1
+
+            # Prevent overflow for the summed log-likelihoods
             self._log_likelihoods -= self._log_likelihoods.mean()
-            # Prevent overflow.
-            MAX_EXP_ARG = 88.0
             overflow_diff = self._log_likelihoods.max() - MAX_EXP_ARG
             if overflow_diff > 0:
                 self._log_likelihoods -= overflow_diff
         posterior = self._log_likelihoods.softmax(dim=0)
         self._ensemble_weights = self._model_weights @ posterior
+        reported_metrics = {
+            "posterior": [p.item() for p in posterior],
+            "ensemble_weights": [w.item() for w in self._ensemble_weights],
+        }
+        self.core_context.train.report_training_metrics(
+            steps_completed=self.trained_batches, metrics=reported_metrics
+        )
         if self.core_context.preempt.should_preempt():
             return
