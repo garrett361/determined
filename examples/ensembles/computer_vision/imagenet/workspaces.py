@@ -115,10 +115,13 @@ class Workspace:
         return trial_results_df
 
     def delete_all_experiments(
-        self, project_names: Union[Sequence[str], str], confirm: bool = False
+        self, project_names: Union[Sequence[str], str], true_to_confirm_delete: bool = False
     ) -> None:
-        if not confirm:
-            raise ValueError("Please confirm deletion of all experiments.")
+        if not true_to_confirm_delete:
+            raise ValueError(
+                f"Please confirm deletion of all experiments in {project_names} via the"
+                f"true_to_confirm_delete flag."
+            )
         experiment_ids = self._get_experiment_ids(project_names)
         for idx in experiment_ids:
             url = f"{self.master_url}/api/v1/experiments/{idx}"
