@@ -33,6 +33,7 @@ class EnsembleTrainer(nn.Module):
         ensemble_args: Optional[dict] = None,
         extra_val_log_metrics: Dict[str, Any] = None,
         sanity_check: bool = False,
+        num_combinations: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.core_context = core_context
@@ -48,6 +49,7 @@ class EnsembleTrainer(nn.Module):
         self.sanity_check = sanity_check
         if self.sanity_check:
             print(f"Running in sanity check mode!")
+        self.num_combinations = num_combinations
 
         self.rank = core_context.distributed.rank
         self.is_distributed = core_context.distributed.size > 1
@@ -79,13 +81,17 @@ class EnsembleTrainer(nn.Module):
             ),
         }
         # Mark which strategies require training:
-        requires_training_strategies = set()
+        requires_training_strategies = {"vbmc"}
         if self.train_dataset is None and self.ensemble_strategy in requires_training_strategies:
             raise ValueError(
                 f"Ensemble strategy {self.ensemble_strategy} requires training data, but no training"
                 f" data was provided."
             )
-        self.ensemble_weights = None
+        # There can be multiple notions of weights for different ensemble strategies..
+        self._ensemble_weights = None
+        self._model_weights = None
+        # Others need log-likelihoods at intermediate steps.
+        self._log_likelihoods = None
 
         # For some strategies, we will output predictions, rather than probabilities, which changes
         # the trackable metrics.
@@ -195,20 +201,20 @@ class EnsembleTrainer(nn.Module):
     def _build_naive(self) -> None:
         """Average the probabilities of all models with equal weights."""
         num_models = len(self.models)
-        self.ensemble_weights = torch.ones(num_models, device=self.device) / num_models
+        self._ensemble_weights = torch.ones(num_models, device=self.device) / num_models
 
     def _naive_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = logits.softmax(dim=1)
-        ensemble_prob = model_probs @ self.ensemble_weights
+        ensemble_prob = model_probs @ self._ensemble_weights
         return ensemble_prob
 
     def _build_naive_logits(self) -> None:
         """Average the logits of all models with equal weights."""
         num_models = len(self.models)
-        self.ensemble_weights = torch.ones(num_models, device=self.device) / num_models
+        self._ensemble_weights = torch.ones(num_models, device=self.device) / num_models
 
     def _naive_logits_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        ensemble_logits = logits @ self.ensemble_weights
+        ensemble_logits = logits @ self._ensemble_weights
         ensemble_prob = ensemble_logits.softmax(dim=1)
         return ensemble_prob
 
@@ -232,3 +238,43 @@ class EnsembleTrainer(nn.Module):
         ensembles_preds = logits.argmax(dim=1)
         majority_vote_preds = ensembles_preds.mode(-1).values
         return majority_vote_preds
+
+    def _build_vbmc(self) -> None:
+        """For each sample, use a majority vote among models. Torch breaks ties by choosing the
+        lowest prediction index among tied values.
+        """
+        # Generate num_combinations sets of model combinations. We use a flat prior over this discrete set.
+        dirichlet = torch.distributions.dirichlet.Dirichlet(torch.ones(len(self.models)))
+        self._model_weights = dirichlet.sample((self.num_combinations,)).to(self.device).T
+        self._train_vbmc()
+
+    def _vbmc_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        model_probs = logits.softmax(dim=1)
+        ensemble_prob = model_probs @ self._ensemble_weights
+        return ensemble_prob
+
+    def _train_vbmc(self) -> None:
+        with torch.no_grad():
+            self._log_likelihoods = torch.zeros(self.num_combinations, device=self.device)
+            vbmc_criterion = nn.NLLLoss(reduction="none")
+            for batch_idx, batch in enumerate(self.train_loader):
+                inputs, labels = batch
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                logits = self(inputs)
+                probs = logits.softmax(dim=1)
+                log_probs = probs.log()
+                labels = labels[..., None]
+                labels = labels.expand(-1, self.num_combinations)
+                loss = vbmc_criterion(log_probs, labels).sum(dim=0)
+                # Subtract loss to get *positive* log-likelihood sum.
+                self._log_likelihoods -= loss
+            self._log_likelihoods -= self._log_likelihoods.mean()
+            # Prevent overflow.
+            MAX_EXP_ARG = 88.0
+            overflow_diff = self._log_likelihoods.max() - MAX_EXP_ARG
+            if overflow_diff > 0:
+                self._log_likelihoods -= overflow_diff
+        posterior = self._log_likelihoods.softmax(dim=0)
+        self._ensemble_weights = self._model_weights @ posterior
+        if self.core_context.preempt.should_preempt():
+            return
