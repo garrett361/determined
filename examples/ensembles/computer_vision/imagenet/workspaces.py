@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Union, Sequence, Set, Optional
 import pandas as pd
 import requests
 
-GET_LIMIT = 2 ** 16
+REQ_LIMIT = 2 ** 30
 
 
 class Workspace:
@@ -37,7 +37,7 @@ class Workspace:
     def get_all_projects(self) -> List[Dict[str, Any]]:
         url = f"{self.master_url}/api/v1/workspaces/{self.workspace_id}/projects"
         with self._session() as s:
-            response = s.get(url, params={"limit": GET_LIMIT})
+            response = s.get(url, params={"limit": REQ_LIMIT})
         projects = json.loads(response.content)["projects"]
         return projects
 
@@ -68,7 +68,7 @@ class Workspace:
         with self._session() as s:
             for pid in project_ids:
                 url = f"{self.master_url}/api/v1/projects/{pid}/experiments"
-                response = s.get(url, params={"limit": GET_LIMIT})
+                response = s.get(url, params={"limit": REQ_LIMIT})
                 pid_exp = json.loads(response.content)["experiments"]
                 exps += pid_exp
         return exps
