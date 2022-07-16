@@ -101,7 +101,7 @@ for num_base_models in args.num_base_models:
         "max_restarts": 0,
         "reproducibility": {"experiment_seed": 42},
         "resources": {"slots_per_trial": 1},
-        "searcher": {"name": "single", "max_length": 1, "metric": "val_loss"},
+        "searcher": {"name": "single", "max_length": 1, "metric": "val_top1_acc"},
         "environment": {"environment_variables": ["OMP_NUM_THREADS=1"]},
         "hyperparameters": {
             "train_batch_size": args.train_batch_size,
