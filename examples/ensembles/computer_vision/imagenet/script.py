@@ -58,6 +58,8 @@ if args.model_names:
 generate_names = args.name == ""
 if args.list_models:
     print(timm_models.get_all_model_names())
+# Append '_test' to the given workspace name, if --test is set.
+workspace_name = args.workspace + ("_test" if args.test else "")
 
 client.login(master=args.master, user=args.user, password=args.password)
 
@@ -68,18 +70,18 @@ else:
     num_experiments = sum(math.comb(base_model_collection_size, n) for n in args.num_base_models)
 
 # Safety valve for accidentally running a lot of experiments.
-if num_experiments > 500:
+if num_experiments >= 300:
     confirm = input(f"Submit {num_experiments} experiments? [yes/N]\n")
     if confirm != "yes":
         sys.exit("Cancelling experiment creation.")
 
-
 s_or_blank = "s" if num_experiments != 1 else ""
 print(
     80 * "-",
-    f"Submitting {num_experiments} {args.ensemble_strategy} experiment{s_or_blank}.",
+    f"\nSubmitting {num_experiments} {args.ensemble_strategy} experiment{s_or_blank}",
+    f"to workspace {workspace_name}\n",
     80 * "-",
-    sep="\n",
+    "\n",
 )
 
 for num_base_models in args.num_base_models:
@@ -94,7 +96,7 @@ for num_base_models in args.num_base_models:
     config = {
         "entrypoint": "python -m determined.launch.torch_distributed -- python -m main",
         "name": args.name,
-        "workspace": args.workspace + ("_test" if args.test else ""),
+        "workspace": workspace_name,
         "project": args.dataset_name,
         "max_restarts": 0,
         "reproducibility": {"experiment_seed": 42},
