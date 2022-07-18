@@ -12,6 +12,10 @@ from torchvision.datasets import ImageFolder
 ImageStat = Union[Tuple[float], Tuple[float, float, float]]
 TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
 
+# We only use timm models which have the following:
+INTERPOLATION = "bicubic"
+CROP_PCT = 0.875
+
 
 class RAMImageFolder:
     """Loads the usual ImageFolder results into memory."""
@@ -151,8 +155,8 @@ def build_basic_train_transform(
         is_training=False,
         mean=dataset_metadata.mean,
         std=dataset_metadata.std,
-        interpolation="bicubic",
-        crop_pct=0.875,
+        interpolation=INTERPOLATION,
+        crop_pct=CROP_PCT,
         **transform_config,
     )
 

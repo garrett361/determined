@@ -24,14 +24,14 @@ class Workspace:
         self.username = username
         self.password = password
         self.token = self._get_login_token()
-        self.py_request_headers = self._get_py_request_headers()
+        self._headers = self._get_headers()
         if create_workspace:
             self._create_workspace(workspace_name)
         self.workspace_id = self._get_workspace_id()
 
     def _session(self) -> requests.Session:
         s = requests.Session()
-        s.headers = self.py_request_headers
+        s.headers = self._headers
         return s
 
     def get_all_projects(self) -> List[Dict[str, Any]]:
@@ -146,7 +146,7 @@ class Workspace:
         token = response.json()["token"]
         return token
 
-    def _get_py_request_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> Dict[str, str]:
         return dict(Cookie=f"auth={self.token}")
 
     def _create_workspace(self, workspace_name: str) -> None:
