@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import contextlib
 import math
 import os
@@ -121,7 +122,7 @@ for num_base_models in args.num_base_models:
         master_url=args.master,
         username=args.user,
         password=args.password,
-    )
+    )   
     workspace.create_project(config["project"])
 
     if args.model_names:
