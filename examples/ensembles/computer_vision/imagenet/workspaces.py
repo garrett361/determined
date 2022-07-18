@@ -12,7 +12,8 @@ REQ_LIMIT = 2 ** 30
 
 class Workspace:
     """
-    A simple class for interacting with a Determined Workspace.
+    A simple class for interacting with a Determined Workspace. Import ``nest_asyncio`` and run
+    nest_asyncio.apply() before using in a Jupyter notebook.
     """
 
     def __init__(
@@ -262,7 +263,7 @@ class Workspace:
             async def get(url):
                 async with semaphore:
                     async with session.get(url, ssl=False) as response:
-                        obj = json.loads(await response.read())
+                        obj = await response.json()
                         target_list.append(obj)
 
             await asyncio.gather(*(get(url) for url in urls))
