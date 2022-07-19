@@ -142,7 +142,7 @@ for strategy in args.ensemble_strategy:
                 num_ensembles=args.num_ensembles,
                 offset=args.offset,
             )
-        desc = f"{num_base_models} model{'s' if num_base_models != 1 else ''} ensembles"
+        desc = f"{num_base_models} model{'s' if num_base_models != 1 else ''} {strategy} ensembles"
         for model_names in tqdm.tqdm(ensembles, desc=desc):
             config["hyperparameters"]["model_names"] = model_names
             with suppress_stdout():
