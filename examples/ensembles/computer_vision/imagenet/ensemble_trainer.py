@@ -384,7 +384,7 @@ class EnsembleTrainer(nn.Module):
         """Minimize the KL divergence for a weighted sum of model probabilities, with the weights
         adding to unity.
         """
-        self._ensemble_weights = torch.ones_like(
+        self._ensemble_weights = torch.ones(
             len(self.models), device=self.device, requires_grad=True
         )
         self._train_super_learner(self._super_learner_probs_pred_fn)
@@ -398,7 +398,7 @@ class EnsembleTrainer(nn.Module):
         """Minimize the KL divergence for a weighted sum of model logits, with no constraint on the
         weights.
         """
-        self._ensemble_weights = torch.ones_like(
+        self._ensemble_weights = torch.ones(
             len(self.models), device=self.device, requires_grad=True
         )
         self._train_super_learner(self._super_learner_logits_pred_fn)
