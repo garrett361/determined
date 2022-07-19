@@ -37,7 +37,7 @@ parser.add_argument("-nbm", "--num_base_models", nargs="+", type=int, default=[]
 parser.add_argument("-cpp", "--checkpoint_path_prefix", type=str, default="shared_fs/state_dicts/")
 parser.add_argument("-ne", "--num_ensembles", type=int, default=0)
 parser.add_argument("-o", "--offset", type=int, default=0)
-parser.add_argument("-tb", "--train_batch_size", type=int, default=128)
+parser.add_argument("-tb", "--train_batch_size", type=int, default=256)
 parser.add_argument("-vb", "--val_batch_size", type=int, default=256)
 parser.add_argument("-nc", "--num_combinations", type=int, default=None)
 parser.add_argument("-sc", "--sanity_check", action="store_true")
@@ -122,7 +122,7 @@ for num_base_models in args.num_base_models:
         master_url=args.master,
         username=args.user,
         password=args.password,
-    )   
+    )
     workspace.create_project(config["project"])
 
     if args.model_names:

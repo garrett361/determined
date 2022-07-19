@@ -85,6 +85,12 @@ class EnsembleTrainer(nn.Module):
                 generates_probabilities=True,
                 requires_training=False,
             ),
+            "naive_temp": EnsembleStrategy(
+                build_fn=self._build_naive_temp,
+                pred_fn=self._naive_temp_pred_fn,
+                generates_probabilities=True,
+                requires_training=True,
+            ),
             "naive_logits": EnsembleStrategy(
                 build_fn=self._build_naive_logits,
                 pred_fn=self._naive_logits_pred_fn,
@@ -196,7 +202,7 @@ class EnsembleTrainer(nn.Module):
     def validate_ensemble(self) -> None:
         self.models.eval()
         with torch.no_grad():
-            for batch_idx, batch in enumerate(self.val_loader):
+            for batch_idx, batch in enumerate(tqdm.tqdm(self.val_loader, desc="Validating")):
                 inputs, labels = batch
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
                 probs = self.get_ensembled_preds(inputs)
@@ -301,6 +307,19 @@ class EnsembleTrainer(nn.Module):
         ensemble_prob = model_probs @ self._ensemble_weights
         return ensemble_prob
 
+    def _build_naive_temp(self) -> None:
+        """Average the probabilities of all models with equal weights, after calibrating the
+        temperature.
+        """
+        num_models = len(self.models)
+        self._ensemble_weights = torch.ones(num_models, device=self.device) / num_models
+        self._calibrate_temperature()
+
+    def _naive_temp_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        model_probs = (logits * self._beta).softmax(dim=1)
+        ensemble_prob = model_probs @ self._ensemble_weights
+        return ensemble_prob
+
     def _train_vbmc(self) -> None:
         with torch.no_grad():
             self._log_likelihoods = torch.zeros(self.num_combinations, device=self.device)
@@ -330,6 +349,36 @@ class EnsembleTrainer(nn.Module):
             "posterior": [p.item() for p in posterior],
             "ensemble_weights": [w.item() for w in self._ensemble_weights],
         }
+        self.core_context.train.report_training_metrics(
+            steps_completed=self.trained_batches, metrics=reported_metrics
+        )
+        if self.core_context.preempt.should_preempt():
+            return
+
+    def _calibrate_temperature(self) -> None:
+        self._beta = torch.ones(len(self.models), device=self.device)
+        with torch.no_grad():
+            beta_history = [self._beta.clone()]
+            for batch_idx, batch in enumerate(
+                tqdm.tqdm(self.train_loader, desc="Calibrating temperature")
+            ):
+                inputs, labels = batch
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                score = self(inputs)
+                probs = (self._beta * score).softmax(dim=1)
+                mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
+                score_label_mean = (probs * score).sum(dim=1)
+                score2_label_mean = (probs * score ** 2).sum(dim=1)
+                dloss_dbeta = score_label_mean.mean(dim=0) - mean_true_score
+                dloss_dbeta2 = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
+                delta_beta = -1 * dloss_dbeta / dloss_dbeta2
+                # Clamp to help prevent runaways due to noise
+                delta_beta = delta_beta.clamp(min=-1, max=1)
+                self._beta += delta_beta
+                beta_history.append(self._beta.clone())
+                self.trained_batches += 1
+            self._beta = torch.stack(beta_history, dim=0).mean(dim=0)
+        reported_metrics = {"betas": [b.item() for b in self._beta]}
         self.core_context.train.report_training_metrics(
             steps_completed=self.trained_batches, metrics=reported_metrics
         )
