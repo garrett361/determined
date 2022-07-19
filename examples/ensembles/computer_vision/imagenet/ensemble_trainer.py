@@ -154,13 +154,16 @@ class EnsembleTrainer(nn.Module):
         self.train_loader = self.build_train_loader()
         self.val_loader = self.build_val_loader()
         self.criterion = nn.NLLLoss(reduction="none")
-        if self.lr is not None:
-            self.optimizer = torch.optim.Adam(self.models.parameters(), lr=self.lr)
 
         # There can be multiple notions of weights for different ensemble strategies.  We use
         # _ensemble_weights are generally used to weight the final individual model probabilities or
         # logits, while_model_weights cover other forms of weights.
-        self._ensemble_weights = None
+
+        # Initialize _ensemble_weights as a Parameter, as required for SGD training in some algos.
+        self._ensemble_weights = nn.Parameter(torch.ones(len(self.models), requires_grad=True))
+        if self.lr is not None:
+            # We only train the ensemble weights:
+            self.optimizer = torch.optim.Adam([self._ensemble_weights], lr=self.lr)
         self._model_weights = None
         # Others need log-likelihoods at intermediate steps.
         self._log_likelihoods = None
@@ -240,11 +243,11 @@ class EnsembleTrainer(nn.Module):
                     )
                 # Join with extra_val_log_metrics and remove any None-valued metrics with a
                 # warning (these would throw errors). Also include the _ensemble_weights and _beta.
-                reported_metrics = {**self.extra_val_log_metrics, **computed_metrics}
-                if self._ensemble_weights is not None:
-                    reported_metrics["ensemble_weights"] = [
-                        w.item() for w in self._ensemble_weights
-                    ]
+                reported_metrics = {
+                    **self.extra_val_log_metrics,
+                    **computed_metrics,
+                    "ensemble_weights": [w.item() for w in self._ensemble_weights],
+                }
                 if self._beta is not None:
                     reported_metrics["beta"] = [b.item() for b in self._beta]
                 for key in list(reported_metrics):
