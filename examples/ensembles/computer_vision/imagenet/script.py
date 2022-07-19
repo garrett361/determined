@@ -40,6 +40,7 @@ parser.add_argument("-o", "--offset", type=int, default=0)
 parser.add_argument("-tb", "--train_batch_size", type=int, default=256)
 parser.add_argument("-vb", "--val_batch_size", type=int, default=256)
 parser.add_argument("-nc", "--num_combinations", type=int, default=None)
+parser.add_argument("-lr", "--learning-rate", type=float, default=None)
 parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-lm", "--list_models", action="store_true")
@@ -114,6 +115,7 @@ for num_base_models in args.num_base_models:
             "num_combinations": args.num_combinations,
             "num_base_models": num_base_models,
             "checkpoint_path_prefix": args.checkpoint_path_prefix,
+            "lr": args.learning_rate,
         },
     }
 
