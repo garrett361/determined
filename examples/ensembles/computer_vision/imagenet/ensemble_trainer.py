@@ -413,7 +413,7 @@ class EnsembleTrainer(nn.Module):
         weights.
         """
         self._ensemble_weights = torch.ones_like(
-            self.models, device=self.device, requires_grad=True
+            len(self.models), device=self.device, requires_grad=True
         )
         self._train_super_learner(self._super_learner_logits_pred_fn)
 
