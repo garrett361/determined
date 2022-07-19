@@ -27,6 +27,7 @@ def main(core_context, hparams: Dict[str, Any]) -> None:
         sanity_check=hparams.sanity_check,
         num_combinations=hparams.num_combinations,
         lr=hparams.lr,
+        epochs=hparams.epochs,
     )
     print("Building ensemble...")
     trainer.build_ensemble()
