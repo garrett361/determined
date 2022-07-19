@@ -495,7 +495,10 @@ class EnsembleTrainer(nn.Module):
             self.optimizer.step()
             self.trained_batches += 1
 
-            reported_metrics = {"train_loss": loss.item()}
+            reported_metrics = {
+                "train_loss": loss.item(),
+                "ensemble_weights": [w.item() for w in self._ensemble_weights],
+            }
             self.core_context.train.report_training_metrics(
                 steps_completed=self.trained_batches, metrics=reported_metrics
             )
