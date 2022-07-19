@@ -406,7 +406,7 @@ class EnsembleTrainer(nn.Module):
 
     def _super_learner_probs_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = logits.softmax(dim=1)
-        ensemble_prob = model_probs @ self._ensemble_weights
+        ensemble_prob = model_probs @ self._ensemble_weights.softmax(dim=-1)
         return ensemble_prob
 
     def _build_super_learner_logits(self) -> None:
