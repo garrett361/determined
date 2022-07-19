@@ -103,6 +103,12 @@ class EnsembleTrainer(nn.Module):
                 generates_probabilities=True,
                 requires_training=False,
             ),
+            "most_confident_temp": EnsembleStrategy(
+                build_fn=self._build_most_confident_temp,
+                pred_fn=self._most_confident_temp_pred_fn,
+                generates_probabilities=True,
+                requires_training=True,
+            ),
             "majority_vote": EnsembleStrategy(
                 build_fn=self._build_majority_vote,
                 pred_fn=self._majority_vote_pred_fn,
@@ -215,8 +221,10 @@ class EnsembleTrainer(nn.Module):
                         f"extra_val_log_metrics/val_metrics conflicting keys: {conflicted_keys}"
                     )
                 # Join with extra_val_log_metrics and remove any None-valued metrics with a
-                # warning (these would throw errors).
+                # warning (these would throw errors). Also include the _ensemble_weights and _beta.
                 reported_metrics = {**self.extra_val_log_metrics, **computed_metrics}
+                reported_metrics["ensemble_weights"] = self._ensemble_weights
+                reported_metrics["beta"] = self._beta
                 for key in list(reported_metrics):
                     if reported_metrics[key] is None:
                         warnings.warn(f"Removing val metric {key} whose value is None.")
@@ -293,9 +301,7 @@ class EnsembleTrainer(nn.Module):
         return majority_vote_preds
 
     def _build_vbmc(self) -> None:
-        """For each sample, use a majority vote among models. Torch breaks ties by choosing the
-        lowest prediction index among tied values.
-        """
+        """Vectorized Bayesian Model Combination."""
         # Generate num_combinations sets of model combinations. We use a flat prior over this discrete set.
         dirichlet = torch.distributions.dirichlet.Dirichlet(torch.ones(len(self.models)))
         self._model_weights = dirichlet.sample((self.num_combinations,)).to(self.device).T
@@ -303,7 +309,27 @@ class EnsembleTrainer(nn.Module):
         self._train_vbmc()
 
     def _vbmc_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        if self.sanity_check:
+            prob_sum_check = self._ensemble_weights.sum(dim=-1)
+            torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
         model_probs = logits.softmax(dim=1)
+        ensemble_prob = model_probs @ self._ensemble_weights
+        return ensemble_prob
+
+    def _build_vbmc_temp(self) -> None:
+        """Vectorized Bayesian Model Combination, with temperature calibration."""
+        # Generate num_combinations sets of model combinations. We use a flat prior over this discrete set.
+        dirichlet = torch.distributions.dirichlet.Dirichlet(torch.ones(len(self.models)))
+        self._model_weights = dirichlet.sample((self.num_combinations,)).to(self.device).T
+        # _model_weights is (len(self.models), self.num_combinations)-shaped
+        self._calibrate_temperature()
+        self._train_vbmc()
+
+    def _vbmc_temp_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        if self.sanity_check:
+            prob_sum_check = self._ensemble_weights.sum(dim=-1)
+            torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
+        model_probs = (logits * self._beta).softmax(dim=1)
         ensemble_prob = model_probs @ self._ensemble_weights
         return ensemble_prob
 
@@ -318,6 +344,18 @@ class EnsembleTrainer(nn.Module):
     def _naive_temp_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = (logits * self._beta).softmax(dim=1)
         ensemble_prob = model_probs @ self._ensemble_weights
+        return ensemble_prob
+
+    def _build_most_confident_temp(self) -> None:
+        """For each sample, use the prediction of the most-confident model, after calibrating the
+        temperature.
+        """
+        self._calibrate_temperature()
+
+    def _most_confident_temp_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        ensembles_probs = (logits * self._beta).softmax(dim=1)
+        max_idxs = ensembles_probs.max(dim=1).values.argmax(dim=-1)
+        ensemble_prob = ensembles_probs[torch.arange(len(max_idxs)), ..., max_idxs]
         return ensemble_prob
 
     def _train_vbmc(self) -> None:
@@ -345,6 +383,9 @@ class EnsembleTrainer(nn.Module):
                 self._log_likelihoods -= overflow_diff
         posterior = self._log_likelihoods.softmax(dim=0)
         self._ensemble_weights = self._model_weights @ posterior
+        if self.sanity_check:
+            prob_sum_check = self._ensemble_weights.sum(dim=-1)
+            torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
         reported_metrics = {
             "posterior": [p.item() for p in posterior],
             "ensemble_weights": [w.item() for w in self._ensemble_weights],
