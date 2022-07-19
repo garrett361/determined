@@ -394,20 +394,6 @@ class EnsembleTrainer(nn.Module):
         ensemble_prob = model_probs @ self._ensemble_weights
         return ensemble_prob
 
-    def _build_super_learner_probs(self) -> None:
-        """Minimize the KL divergence for a weighted sum of model probabilities, with the weights
-        adding to unity.
-        """
-        self._ensemble_weights = torch.ones_like(
-            len(self.models), device=self.device, requires_grad=True
-        )
-        self._train_super_learner(self._super_learner_probs_pred_fn)
-
-    def _super_learner_probs_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        model_probs = (logits * self._beta).softmax(dim=1)
-        ensemble_prob = model_probs @ self._ensemble_weights
-        return ensemble_prob
-
     def _build_super_learner_logits(self) -> None:
         """Minimize the KL divergence for a weighted sum of model logits, with no constraint on the
         weights.
