@@ -6,7 +6,7 @@ require (
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/determined-ai/determined/master v0.0.0
 	github.com/docker/distribution v2.7.1+incompatible
-	github.com/docker/docker v20.10.12+incompatible
+	github.com/docker/docker v20.10.17+incompatible
 	github.com/docker/docker-credential-helpers v0.6.4
 	github.com/docker/go-connections v0.4.0
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
@@ -25,7 +25,6 @@ require (
 )
 
 require (
-	github.com/determined-ai/determined/proto v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.7.1
 	golang.org/x/exp v0.0.0-20220328175248-053ad81199eb
 )
@@ -47,11 +46,11 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.1.2 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/containerd/containerd v1.5.8 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/docker/go-metrics v0.0.1 // indirect
 	github.com/docker/go-units v0.4.0 // indirect
+	github.com/docker/libtrust v0.0.0-20150114040149-fa567046d9b1 // indirect
 	github.com/dustinkirkland/golang-petname v0.0.0-20191129215211-8e5a1ed0cff0 // indirect
 	github.com/elastic/go-elasticsearch/v7 v7.9.0 // indirect
 	github.com/emirpasic/gods v1.12.0 // indirect
@@ -91,6 +90,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jmoiron/sqlx v1.2.1-0.20190826204134-d7d95172beb5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/kr/pretty v0.2.1 // indirect
 	github.com/labstack/echo-contrib v0.11.0 // indirect
 	github.com/labstack/gommon v0.3.1 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
