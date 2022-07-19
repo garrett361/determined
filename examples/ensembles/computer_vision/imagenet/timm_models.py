@@ -82,7 +82,6 @@ def build_timm_model_list(model_names: List[str], checkpoint_path_prefix: str) -
     for model_name in model_names:
         print(f"Building model {model_name}...")
         checkpoint_path = checkpoint_path_prefix + all_models[model_name]
-        print(checkpoint_path)
         model = timm.create_model(model_name, checkpoint_path=checkpoint_path)
         models.append(model)
     return models
