@@ -499,8 +499,9 @@ class EnsembleTrainer(nn.Module):
             logits = self(inputs)
             probs = pred_fn(logits)
             log_probs = probs.log()
-            loss = sl_criterion(log_probs, labels)
             self.optimizer.zero_grad()
+            loss = sl_criterion(log_probs, labels)
+            loss.backward()
             self.optimizer.step()
             self.trained_batches += 1
 
