@@ -1,5 +1,5 @@
 import random
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -74,3 +74,26 @@ class NoopPyTorchTrial(pytorch.PyTorchTrial):
         return pytorch.DataLoader(
             OnesDataset(self.dataset_len), batch_size=self.context.get_per_slot_batch_size()
         )
+
+
+class NoopPyTorchTrialWithCallbacks(NoopPyTorchTrial):
+    def __init__(self, context: pytorch.PyTorchTrialContext):
+        super().__init__(context)
+
+    def build_callbacks(self) -> Dict[str, pytorch.PyTorchCallback]:
+        return {"test_callbacks": TestCallbacks()}
+
+
+class TestCallbacks(pytorch.PyTorchCallback):
+    def __init__(self) -> None:
+        pass
+
+    def on_training_workload_end(
+        self, avg_metrics: List[Dict[str, Any]], batch_metrics: Dict[str, Any]
+    ) -> None:
+        print("Calling on_training_workload_end")
+        print("avg_metrics", avg_metrics)
+        print("batch_metrics", batch_metrics)
+
+    def on_checkpoint_upload_end(self, uuid: str) -> None:
+        print(f"Calling on_checkpoint_upload_end. uuid={uuid}")
