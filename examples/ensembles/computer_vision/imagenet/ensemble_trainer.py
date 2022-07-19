@@ -27,11 +27,13 @@ class EnsembleStrategy:
         pred_fn: Callable,
         generates_probabilities: bool,
         requires_training: bool,
+        requires_SGD: bool,
     ) -> None:
         self.build_fn = build_fn
         self.pred_fn = pred_fn
         self.generates_probabilities = generates_probabilities
         self.requires_training = requires_training
+        self.requires_SGD = requires_SGD
 
 
 class EnsembleTrainer(nn.Module):
@@ -84,60 +86,70 @@ class EnsembleTrainer(nn.Module):
                 pred_fn=self._naive_pred_fn,
                 generates_probabilities=True,
                 requires_training=False,
+                requires_SGD=False,
             ),
             "naive_temp": EnsembleStrategy(
                 build_fn=self._build_naive_temp,
                 pred_fn=self._naive_temp_pred_fn,
                 generates_probabilities=True,
                 requires_training=True,
+                requires_SGD=False,
             ),
             "naive_logits": EnsembleStrategy(
                 build_fn=self._build_naive_logits,
                 pred_fn=self._naive_logits_pred_fn,
                 generates_probabilities=True,
                 requires_training=False,
+                requires_SGD=False,
             ),
             "most_confident": EnsembleStrategy(
                 build_fn=self._build_most_confident,
                 pred_fn=self._most_confident_pred_fn,
                 generates_probabilities=True,
                 requires_training=False,
+                requires_SGD=False,
             ),
             "most_confident_temp": EnsembleStrategy(
                 build_fn=self._build_most_confident_temp,
                 pred_fn=self._most_confident_temp_pred_fn,
                 generates_probabilities=True,
                 requires_training=True,
+                requires_SGD=False,
             ),
             "majority_vote": EnsembleStrategy(
                 build_fn=self._build_majority_vote,
                 pred_fn=self._majority_vote_pred_fn,
                 generates_probabilities=False,
                 requires_training=False,
+                requires_SGD=False,
             ),
             "vbmc": EnsembleStrategy(
                 build_fn=self._build_vbmc,
                 pred_fn=self._vbmc_pred_fn,
                 generates_probabilities=True,
                 requires_training=True,
+                requires_SGD=False,
             ),
             "vbmc_temp": EnsembleStrategy(
                 build_fn=self._build_vbmc_temp,
                 pred_fn=self._vbmc_temp_pred_fn,
                 generates_probabilities=True,
                 requires_training=True,
+                requires_SGD=False,
             ),
             "super_learner_probs": EnsembleStrategy(
                 build_fn=self._build_super_learner_probs,
                 pred_fn=self._super_learner_probs_pred_fn,
                 generates_probabilities=True,
                 requires_training=True,
+                requires_SGD=True,
             ),
             "super_learner_logits": EnsembleStrategy(
                 build_fn=self._build_super_learner_logits,
                 pred_fn=self._super_learner_logits_pred_fn,
                 generates_probabilities=True,
                 requires_training=True,
+                requires_SGD=True,
             ),
         }
         self._strategy = self._ensemble_strategies[self.ensemble_strategy]
@@ -159,9 +171,12 @@ class EnsembleTrainer(nn.Module):
         # _ensemble_weights are generally used to weight the final individual model probabilities or
         # logits, while_model_weights cover other forms of weights.
 
-        # Initialize _ensemble_weights as a Parameter, as required for SGD training in some algos.
-        self._ensemble_weights = nn.Parameter(torch.ones(len(self.models), requires_grad=True))
-        if self.lr is not None:
+        # Some strategies require training the ensemble weights
+        self._ensemble_weights = None
+        if self._strategy.requires_SGD:
+            self._ensemble_weights = nn.Parameter(
+                torch.ones(len(self.models), device=self.device, requires_grad=True)
+            )
             # We only train the ensemble weights:
             self.optimizer = torch.optim.Adam([self._ensemble_weights], lr=self.lr)
         self._model_weights = None
@@ -243,11 +258,11 @@ class EnsembleTrainer(nn.Module):
                     )
                 # Join with extra_val_log_metrics and remove any None-valued metrics with a
                 # warning (these would throw errors). Also include the _ensemble_weights and _beta.
-                reported_metrics = {
-                    **self.extra_val_log_metrics,
-                    **computed_metrics,
-                    "ensemble_weights": [w.item() for w in self._ensemble_weights],
-                }
+                reported_metrics = {**self.extra_val_log_metrics, **computed_metrics}
+                if self._ensemble_weights is not None:
+                    reported_metrics["ensemble_weights"] = [
+                        w.item() for w in self._ensemble_weights
+                    ]
                 if self._beta is not None:
                     reported_metrics["beta"] = [b.item() for b in self._beta]
                 for key in list(reported_metrics):
@@ -387,9 +402,6 @@ class EnsembleTrainer(nn.Module):
         """Minimize the KL divergence for a weighted sum of model probabilities, with the weights
         adding to unity.
         """
-        self._ensemble_weights = torch.ones(
-            len(self.models), device=self.device, requires_grad=True
-        )
         self._train_super_learner(self._super_learner_probs_pred_fn)
 
     def _super_learner_probs_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
@@ -401,9 +413,6 @@ class EnsembleTrainer(nn.Module):
         """Minimize the KL divergence for a weighted sum of model logits, with no constraint on the
         weights.
         """
-        self._ensemble_weights = torch.ones(
-            len(self.models), device=self.device, requires_grad=True
-        )
         self._train_super_learner(self._super_learner_logits_pred_fn)
 
     def _super_learner_logits_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
