@@ -72,7 +72,7 @@ else:
     num_experiments = sum(math.comb(base_model_collection_size, n) for n in args.num_base_models)
 
 # Safety valve for accidentally running a lot of experiments.
-if num_experiments >= 300:
+if num_experiments >= 100:
     confirm = input(f"Submit {num_experiments} experiments? [yes/N]\n")
     if confirm != "yes":
         sys.exit("Cancelling experiment creation.")
