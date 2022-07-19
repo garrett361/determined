@@ -50,6 +50,7 @@ class EnsembleTrainer(nn.Module):
         sanity_check: bool = False,
         num_combinations: Optional[int] = None,
         lr: Optional[float] = None,
+        epochs: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.core_context = core_context
@@ -66,6 +67,7 @@ class EnsembleTrainer(nn.Module):
             print(f"Running in sanity check mode!")
         self.num_combinations = num_combinations
         self.lr = lr
+        self.epochs = epochs
 
         self.rank = core_context.distributed.rank
         self.is_distributed = core_context.distributed.size > 1
@@ -491,26 +493,27 @@ class EnsembleTrainer(nn.Module):
     def _train_super_learner(self, pred_fn: Callable) -> None:
         # TODO: Optimize by using CrossEntropyLoss when possible.
         sl_criterion = nn.NLLLoss()
-        for batch_idx, batch in enumerate(
-            tqdm.tqdm(self.train_loader, desc="Training Super Learner")
-        ):
-            inputs, labels = batch
-            inputs, labels = inputs.to(self.device), labels.to(self.device)
-            logits = self(inputs)
-            probs = pred_fn(logits)
-            log_probs = probs.log()
-            self.optimizer.zero_grad()
-            loss = sl_criterion(log_probs, labels)
-            loss.backward()
-            self.optimizer.step()
-            self.trained_batches += 1
+        for epoch_idx in tqdm.tqdm(range(self.epochs), desc="Epoch"):
+            for batch_idx, batch in enumerate(
+                tqdm.tqdm(self.train_loader, desc="Training Super Learner")
+            ):
+                inputs, labels = batch
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                logits = self(inputs)
+                probs = pred_fn(logits)
+                log_probs = probs.log()
+                self.optimizer.zero_grad()
+                loss = sl_criterion(log_probs, labels)
+                loss.backward()
+                self.optimizer.step()
+                self.trained_batches += 1
 
-            reported_metrics = {
-                "train_loss": loss.item(),
-                "ensemble_weights": [w.item() for w in self._ensemble_weights],
-            }
-            self.core_context.train.report_training_metrics(
-                steps_completed=self.trained_batches, metrics=reported_metrics
-            )
-            if self.core_context.preempt.should_preempt():
-                return
+                reported_metrics = {
+                    "train_loss": loss.item(),
+                    "ensemble_weights": [w.item() for w in self._ensemble_weights],
+                }
+                self.core_context.train.report_training_metrics(
+                    steps_completed=self.trained_batches, metrics=reported_metrics
+                )
+                if self.core_context.preempt.should_preempt():
+                    return
