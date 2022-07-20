@@ -61,17 +61,19 @@ class Workspace:
 
     def create_project(self, project_name: str, description: str = "") -> None:
         """Creates a new project in the workspace, if it doesn't already exist."""
-        if self._get_project_idxs(project_name):
+        try:
+            self._get_project_idxs(project_name)
             print(f"Project {project_name} already exists in the {self.workspace_name} workspace.")
             return
-        url = f"{self.master_url}/api/v1/workspaces/{self.workspace_idx}/projects"
-        project_dict = {
-            "name": project_name,
-            "description": description,
-            "workspaceId": self.workspace_idx,
-        }
-        with self._session() as s:
-            s.post(url, json=project_dict)
+        except KeyError:
+            url = f"{self.master_url}/api/v1/workspaces/{self.workspace_idx}/projects"
+            project_dict = {
+                "name": project_name,
+                "description": description,
+                "workspaceId": self.workspace_idx,
+            }
+            with self._session() as s:
+                s.post(url, json=project_dict)
 
     def get_experiments(
         self, project_names: Optional[Union[Sequence[str], str]] = None

@@ -159,11 +159,13 @@ class EnsembleTrainer(nn.Module):
         if self._strategy.requires_training:
             print(f"Building train_dataset")
             self.train_dataset = data.get_dataset(name=self.dataset_name, split="train")
+            print(f"{len(self.train_dataset)} records in train_dataset")
         else:
             print(f"Skipping building train_dataset")
             self.train_dataset = None
         print(f"Building val_dataset")
         self.val_dataset = data.get_dataset(name=self.dataset_name, split="val")
+        print(f"{len(self.val_dataset)} records in val_dataset")
         self.trained_batches = 0
         self.train_loader = self.build_train_loader()
         self.val_loader = self.build_val_loader()
