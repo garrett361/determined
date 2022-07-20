@@ -104,6 +104,13 @@ class EnsembleTrainer(nn.Module):
                 requires_training=False,
                 requires_SGD=False,
             ),
+            "naive_logits_temp": EnsembleStrategy(
+                build_fn=self._build_naive_logits_temp,
+                pred_fn=self._naive_logits_temp_pred_fn,
+                generates_probabilities=True,
+                requires_training=True,
+                requires_SGD=False,
+            ),
             "most_confident": EnsembleStrategy(
                 build_fn=self._build_most_confident,
                 pred_fn=self._most_confident_pred_fn,
@@ -318,8 +325,32 @@ class EnsembleTrainer(nn.Module):
         num_models = len(self.models)
         self._ensemble_weights = torch.ones(num_models, device=self.device) / num_models
 
+    def _build_naive_temp(self) -> None:
+        """Average the probabilities of all models with equal weights, after calibrating the
+        temperature.
+        """
+        num_models = len(self.models)
+        self._ensemble_weights = torch.ones(num_models, device=self.device) / num_models
+        self._calibrate_temperature()
+
+    def _naive_temp_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        model_probs = (logits * self._beta).softmax(dim=1)
+        ensemble_probs = model_probs @ self._ensemble_weights
+        return ensemble_probs
+
     def _naive_logits_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = logits @ self._ensemble_weights
+        ensemble_prob = ensemble_logits.softmax(dim=1)
+        return ensemble_prob
+
+    def _build_naive_logits_temp(self) -> None:
+        """Average the logits of all models with equal weights."""
+        num_models = len(self.models)
+        self._ensemble_weights = torch.ones(num_models, device=self.device) / num_models
+        self._calibrate_temperature()
+
+    def _naive_logits_temp_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+        ensemble_logits = (logits * self._beta) @ self._ensemble_weights
         ensemble_prob = ensemble_logits.softmax(dim=1)
         return ensemble_prob
 
@@ -373,19 +404,6 @@ class EnsembleTrainer(nn.Module):
         if self.sanity_check:
             prob_sum_check = self._ensemble_weights.sum(dim=-1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
-        model_probs = (logits * self._beta).softmax(dim=1)
-        ensemble_prob = model_probs @ self._ensemble_weights
-        return ensemble_prob
-
-    def _build_naive_temp(self) -> None:
-        """Average the probabilities of all models with equal weights, after calibrating the
-        temperature.
-        """
-        num_models = len(self.models)
-        self._ensemble_weights = torch.ones(num_models, device=self.device) / num_models
-        self._calibrate_temperature()
-
-    def _naive_temp_pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = (logits * self._beta).softmax(dim=1)
         ensemble_prob = model_probs @ self._ensemble_weights
         return ensemble_prob
