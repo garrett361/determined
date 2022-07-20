@@ -1,5 +1,6 @@
 import dataclasses
-from typing import Any, Callable, Dict, Literal, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
+import os
 
 import attrdict
 import pickle
@@ -35,13 +36,15 @@ class RAMImageFolder:
         return self.samples[idx]
 
 
-class SplitImageFolder(ImageFolder):
+# ImageNetv2 labels its directories with the corresponding ImageNet idx. This requires special
+# handling to map back to the appropriate idxs.
+class SplitImageNetv2ImageFolder(ImageFolder):
     def __init__(
         self,
         split: Literal["train", "val", "test"],
         split_pkl_path: str = SPLIT_PICKLE_PATH,
         *args,
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         with open(split_pkl_path, "rb") as f:
@@ -62,6 +65,14 @@ class SplitImageFolder(ImageFolder):
 
         return sample, target
 
+    def find_classes(self, directory: str) -> Tuple[List[str], Dict[str, int]]:
+        classes = sorted(entry.name for entry in os.scandir(directory) if entry.is_dir())
+        if not classes:
+            raise FileNotFoundError(f"Couldn't find any class folder in {directory}.")
+
+        class_to_idx = {cls_name: int(cls_name) for cls_name in classes}
+        return classes, class_to_idx
+
 
 @dataclasses.dataclass
 class DatasetMetadata:
@@ -79,25 +90,20 @@ class DatasetMetadata:
 
 
 DATASET_METADATA_BY_NAME = {
-    "imagenet": DatasetMetadata(
-        num_classes=1000,
-        root="shared_fs/data/imagenet",
-        dataset_class=SplitImageFolder,
-    ),
     "imagenetv2-matched-frequency": DatasetMetadata(
         num_classes=1000,
         root="shared_fs/data/imagenetv2-matched-frequency-format-val",
-        dataset_class=SplitImageFolder,
+        dataset_class=SplitImageNetv2ImageFolder,
     ),
     "imagenetv2-threshold0.7": DatasetMetadata(
         num_classes=1000,
         root="shared_fs/data/imagenetv2-threshold0.7-format-val",
-        dataset_class=SplitImageFolder,
+        dataset_class=SplitImageNetv2ImageFolder,
     ),
     "imagenetv2-top-images": DatasetMetadata(
         num_classes=1000,
         root="shared_fs/data/imagenetv2-top-images-format-val",
-        dataset_class=SplitImageFolder,
+        dataset_class=SplitImageNetv2ImageFolder,
     ),
     "imagewang": DatasetMetadata(
         num_classes=20,
@@ -196,7 +202,7 @@ def get_dataset(
         dataset = dataset_metadata.dataset_class(
             root=root, transform=transform, target_transform=target_transform
         )
-    elif dataset_metadata.dataset_class == SplitImageFolder:
+    elif dataset_metadata.dataset_class == SplitImageNetv2ImageFolder:
         dataset = dataset_metadata.dataset_class(
             split=split,
             root=dataset_metadata.root,
