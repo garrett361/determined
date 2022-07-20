@@ -44,7 +44,7 @@ class EnsembleTrainer(nn.Module):
         train_batch_size: int,
         val_batch_size: int,
         dataset_name: str,
-        ensemble_strategy: str = "naive",
+        ensemble_strategy: str,
         ensemble_args: Optional[dict] = None,
         extra_val_log_metrics: Dict[str, Any] = None,
         sanity_check: bool = False,
