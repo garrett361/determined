@@ -16,7 +16,7 @@ TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
 INTERPOLATION = "bicubic"
 CROP_PCT = 0.875
 # Path to the train/val/test index splitting pkl file.
-SPLIT_PICKLE_PATH = "shared_fs/data/imagenetv2_train_val_test_idx_split.pkl"
+SPLIT_PICKLE_PATH = "imagenetv2_train_val_test_idx_mappings.pkl"
 
 
 class RAMImageFolder:
@@ -198,7 +198,7 @@ def get_dataset(
         )
     elif dataset_metadata.dataset_class == SplitImageFolder:
         dataset = dataset_metadata.dataset_class(
-            split=dataset_metadata.split,
+            split=split,
             root=dataset_metadata.root,
             transform=transform,
         )
