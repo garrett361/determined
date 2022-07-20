@@ -15,6 +15,8 @@ TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
 # We only use timm models which have the following:
 INTERPOLATION = "bicubic"
 CROP_PCT = 0.875
+# Path to the train/val/test index splitting pkl file.
+SPLIT_PICKLE_PATH = "shared_fs/data/imagenetv2_train_val_test_idx_split.pkl"
 
 
 class RAMImageFolder:
@@ -35,7 +37,11 @@ class RAMImageFolder:
 
 class SplitImageFolder(ImageFolder):
     def __init__(
-        self, split_pkl_path: str, split: Literal["train", "val", "test"], *args, **kwargs
+        self,
+        split: Literal["train", "val", "test"],
+        split_pkl_path: str = SPLIT_PICKLE_PATH,
+        *args,
+        **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
         with open(split_pkl_path, "rb") as f:
@@ -76,6 +82,21 @@ DATASET_METADATA_BY_NAME = {
     "imagenet": DatasetMetadata(
         num_classes=1000,
         root="shared_fs/data/imagenet",
+        dataset_class=SplitImageFolder,
+    ),
+    "imagenetv2-matched-frequency": DatasetMetadata(
+        num_classes=1000,
+        root="shared_fs/data/imagenetv2-matched-frequency-format-val",
+        dataset_class=SplitImageFolder,
+    ),
+    "imagenetv2-threshold0.7": DatasetMetadata(
+        num_classes=1000,
+        root="shared_fs/data/imagenetv2-threshold0.7-format-val",
+        dataset_class=SplitImageFolder,
+    ),
+    "imagenetv2-top-images": DatasetMetadata(
+        num_classes=1000,
+        root="shared_fs/data/imagenetv2-top-images-format-val",
         dataset_class=SplitImageFolder,
     ),
     "imagewang": DatasetMetadata(
@@ -177,7 +198,6 @@ def get_dataset(
         )
     elif dataset_metadata.dataset_class == SplitImageFolder:
         dataset = dataset_metadata.dataset_class(
-            split_pkl_path="shared_fs/data/imagenetv2_train_val_test_idx_split.pkl",
             split=dataset_metadata.split,
             root=dataset_metadata.root,
             transform=transform,
