@@ -84,8 +84,8 @@ for strategy in args.ensemble_strategy:
     s_or_blank = "s" if num_experiments != 1 else ""
     print(
         80 * "-",
-        f"\nSubmitting {num_experiments} {strategy} experiment{s_or_blank}",
-        f"to workspace {workspace_name}\n",
+        f"\nSubmitting {num_experiments // len(args.ensemble_strategy)} {strategy} ",
+        f"experiment{s_or_blank} to workspace {workspace_name}\n",
         80 * "-",
         "\n",
     )
