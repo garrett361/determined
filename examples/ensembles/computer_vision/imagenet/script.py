@@ -66,13 +66,16 @@ workspace_name = args.workspace + ("_test" if args.test else "")
 
 client.login(master=args.master, user=args.user, password=args.password)
 
+num_ensemble_strategies = len(args.ensemble_strategy)
+
 if args.num_ensembles != -1:
-    num_experiments = len(args.ensemble_strategy) * len(args.num_base_models) * args.num_ensembles
+    num_experiments = num_ensemble_strategies * len(args.num_base_models) * args.num_ensembles
 else:
     base_model_collection_size = len(timm_models.get_model_names_from_criteria(args.model_criteria))
-    num_experiments = len(args.ensemble_strategy) * sum(
+    num_experiments = num_ensemble_strategies * sum(
         math.comb(base_model_collection_size, n) for n in args.num_base_models
     )
+num_experiments_per_strategy = num_experiments // num_ensemble_strategies
 
 # Safety valve for accidentally running a lot of experiments.
 if num_experiments >= 100:
@@ -84,7 +87,7 @@ for strategy in args.ensemble_strategy:
     s_or_blank = "s" if num_experiments != 1 else ""
     print(
         80 * "-",
-        f"\nSubmitting {num_experiments // len(args.ensemble_strategy)} {strategy} ",
+        f"\nSubmitting {num_experiments_per_strategy} {strategy} ",
         f"experiment{s_or_blank} to workspace {workspace_name}\n",
         80 * "-",
         "\n",
