@@ -30,7 +30,7 @@ parser.add_argument("-p", "--password", type=str, default="")
 parser.add_argument("-d", "--dataset_name", type=str, default="imagenette2-160")
 parser.add_argument("-es", "--ensemble_strategy", nargs="+", type=str, default=[])
 parser.add_argument("-mc", "--model_criteria", type=str, default="")
-parser.add_argument("-n", "--name", type=str, default="")
+parser.add_argument("-en", "--experiment_name", type=str, default="")
 parser.add_argument("-w", "--workspace", type=str, default="Ensembling")
 parser.add_argument("-mn", "--model_names", nargs="+", type=str, default=[])
 parser.add_argument("-nbm", "--num_base_models", nargs="+", type=int, default=[])
@@ -58,8 +58,8 @@ if args.model_names:
     args.num_base_models = [len(args.model_names)]
     args.num_ensembles = 1
 
-# Generate name from command line arguments, if none provided.
-generate_names = args.name == ""
+# Generate experiment names from command line arguments, if none provided.
+generate_names = args.experiment_name == ""
 if args.list_models:
     print(timm_models.get_all_model_names())
 # Append '_test' to the given workspace name, if --test is set.
@@ -102,11 +102,11 @@ for strategy in args.ensemble_strategy:
                 f"{strategy}",
                 f"{num_base_models}",
             ]
-            args.name = "_".join(name_components)
+            args.experiment_name = "_".join(name_components)
 
         config = {
             "entrypoint": "python -m determined.launch.torch_distributed -- python -m main",
-            "name": args.name,
+            "name": args.experiment_name,
             "workspace": workspace_name,
             "project": args.dataset_name,
             "max_restarts": 0,

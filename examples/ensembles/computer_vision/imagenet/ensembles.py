@@ -320,7 +320,7 @@ class Ensemble(nn.Module):
                         warnings.warn(f"Removing train metric {key} whose value is None.")
                         reported_metrics.pop(key)
 
-                self.core_context.train.report_validation_metrics(
+                self.core_context.train.report_training_metrics(
                     steps_completed=self.trained_batches, metrics=reported_metrics
                 )
             self.reset_metrics()
