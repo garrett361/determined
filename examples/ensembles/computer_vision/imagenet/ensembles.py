@@ -358,6 +358,7 @@ class NaiveStrategy(Strategy):
 
     generates_probabilities = True
     requires_training = False
+    requires_SGD = False
 
     def build_fn(self) -> None:
         self.ensemble.ensemble_weights = (
@@ -504,7 +505,7 @@ class VBMCStrategy(Strategy):
         self.ensemble.train_vbmc()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        if self.sanity_check:
+        if self.ensemble.sanity_check:
             prob_sum_check = self.ensemble.ensemble_weights.sum(dim=-1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
         model_probs = logits.softmax(dim=1)
@@ -531,7 +532,7 @@ class VBMCTempStrategy(Strategy):
         self.ensemble.train_vbmc()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        if self.sanity_check:
+        if self.ensemble.sanity_check:
             prob_sum_check = self.ensemble.ensemble_weights.sum(dim=-1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
         model_probs = (logits * self.ensemble.beta).softmax(dim=1)
