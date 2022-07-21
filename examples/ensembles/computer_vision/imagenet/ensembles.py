@@ -150,6 +150,7 @@ class Ensemble(nn.Module):
         return loader
 
     def build_ensemble(self) -> None:
+        print("Building ensemble...")
         self._strategy.build_fn()
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
