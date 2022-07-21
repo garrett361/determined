@@ -45,6 +45,7 @@ parser.add_argument("-e", "--epochs", type=int, default=None)
 parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-lm", "--list_models", action="store_true")
+parser.add_argument("-nsv", "--no_safety_valve", action="store_true")
 args = parser.parse_args()
 
 if args.model_names and (args.num_base_models or args.num_ensembles or args.model_criteria):
@@ -78,7 +79,7 @@ else:
 num_experiments_per_strategy = num_experiments // num_ensemble_strategies
 
 # Safety valve for accidentally running a lot of experiments.
-if num_experiments >= 100:
+if not args.no_safety_valve and num_experiments >= 100:
     confirm = input(f"Submit {num_experiments} experiments? [yes/N]\n")
     if confirm != "yes":
         sys.exit("Cancelling experiment creation.")
