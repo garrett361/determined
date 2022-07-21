@@ -90,7 +90,7 @@ class Ensemble(nn.Module):
         self.trained_batches = 0
         self.train_loader = self.build_train_loader()
         self.val_loader = self.build_val_loader()
-        self.criterion = nn.NLLLoss(reduction="none")
+        self._nll_criterion = nn.NLLLoss()
 
         # There can be multiple notions of weights for different ensemble strategies.  `weights`
         # are generally used to weight the final individual model probabilities or
@@ -157,7 +157,7 @@ class Ensemble(nn.Module):
         model_logits = torch.stack([model(inputs) for model in self.models], dim=-1)
         return model_logits
 
-    def get_ensembled_preds(self, inputs: torch.Tensor) -> torch.Tensor:
+    def get_ensembled_preds_from_inputs(self, inputs: torch.Tensor) -> torch.Tensor:
         """Returns predictions for the ensembled model."""
         logits = self(inputs)
         ensembled_preds = self._strategy.pred_fn(logits)
@@ -172,7 +172,7 @@ class Ensemble(nn.Module):
             for batch_idx, batch in enumerate(tqdm.tqdm(self.val_loader, desc="Validating")):
                 inputs, labels = batch
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
-                probs = self.get_ensembled_preds(inputs)
+                probs = self.get_ensembled_preds_from_inputs(inputs)
                 self.update_metrics(probs, labels)
             if self.is_chief:
                 computed_metrics = self.compute_metrics("val_")
@@ -205,7 +205,7 @@ class Ensemble(nn.Module):
             met(probs, labels)
         if self.loss_metric is not None:
             # NLLLoss expects log-probabilities
-            loss = self.criterion(probs.log(), labels)
+            loss = self._nll_criterion(probs.log(), labels)
             self.loss_metric(loss)
 
     def compute_metrics(self, prefix: str = ""):
@@ -223,6 +223,8 @@ class Ensemble(nn.Module):
             self.loss_metric.reset()
 
     def train_vbmc(self) -> None:
+        """Computes the posterior and resulting effective weights for the num_combination linear
+        combinations of models."""
         with torch.no_grad():
             self._log_likelihoods = torch.zeros(self.num_combinations, device=self.device)
             vbmc_criterion = nn.NLLLoss(reduction="none")
@@ -231,11 +233,11 @@ class Ensemble(nn.Module):
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
                 logits = self(inputs)
                 probs = logits.softmax(dim=1)
-                ensembled_probs = probs @ self._other_weights
-                log_ensembled_probs = ensembled_probs.log()
+                ensemble_probs = probs @ self._other_weights
+                log_ensemble_probs = ensemble_probs.log()
                 labels = labels[..., None]
                 labels = labels.expand(-1, self.num_combinations)
-                loss = vbmc_criterion(log_ensembled_probs, labels).sum(dim=0)
+                loss = vbmc_criterion(log_ensemble_probs, labels).sum(dim=0)
                 # Subtract loss to get *positive* log-likelihood sum.
                 self._log_likelihoods -= loss
                 self.trained_batches += 1
@@ -261,6 +263,8 @@ class Ensemble(nn.Module):
             return
 
     def calibrate_temperature(self) -> None:
+        """Calibrates temperatures for all base models in the ensemble in parallel using Newton's
+        method."""
         self.beta = torch.ones(self.num_models, device=self.device)
         with torch.no_grad():
             beta_history = [self.beta.clone()]
@@ -291,32 +295,37 @@ class Ensemble(nn.Module):
             return
 
     def train_super_learner(self) -> None:
+        """Train super-learner strategies using a standard SGD loop."""
         # TODO: Optimize by using CrossEntropyLoss when possible.
-        sl_criterion = nn.NLLLoss()
         for epoch_idx in tqdm.tqdm(range(self.epochs), desc="Epoch"):
             for batch_idx, batch in enumerate(
                 tqdm.tqdm(self.train_loader, desc="Training Super Learner")
             ):
                 inputs, labels = batch
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
-                logits = self(inputs)
-                probs = self._strategy.pred_fn(logits)
-                log_probs = probs.log()
+                probs = self.get_ensembled_preds_from_inputs(inputs)
+                self.update_metrics(probs, labels)
+
                 self.optimizer.zero_grad()
-                loss = sl_criterion(log_probs, labels)
+                loss = self._nll_criterion(probs.log(), labels)
                 loss.backward()
                 self.optimizer.step()
                 self.trained_batches += 1
+            # Report training metrics at the end of each epoch
+            if self.is_chief:
+                reported_metrics = self.compute_metrics("train_")
+                reported_metrics["ensemble_weights"] = [w.item() for w in self.ensemble_weights]
+                for key in list(reported_metrics):
+                    if reported_metrics[key] is None:
+                        warnings.warn(f"Removing train metric {key} whose value is None.")
+                        reported_metrics.pop(key)
 
-                reported_metrics = {
-                    "train_loss": loss.item(),
-                    "ensemble_weights": [w.item() for w in self.ensemble_weights],
-                }
-                self.core_context.train.report_training_metrics(
+                self.core_context.train.report_validation_metrics(
                     steps_completed=self.trained_batches, metrics=reported_metrics
                 )
-                if self.core_context.preempt.should_preempt():
-                    return
+            self.reset_metrics()
+            if self.core_context.preempt.should_preempt():
+                return
 
 
 class Strategy(abc.ABC):
@@ -349,7 +358,8 @@ class Strategy(abc.ABC):
     @abc.abstractmethod
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         """Returns a prediction given the logits of the base models in the ensemble, stacked along
-        the final dimension."""
+        the final dimension.  The output should either be in the form of probabilities or a
+        single prediction."""
         pass
 
 
