@@ -5,7 +5,7 @@ entrypoint: model_def:NoopPyTorchTrialWithCallbacks
 hyperparameters:
   global_batch_size: 32
   dataset_len: 128
-scheduling_unit: 4
+scheduling_unit: 1
 searcher:
   name: single
   metric: validation_error
