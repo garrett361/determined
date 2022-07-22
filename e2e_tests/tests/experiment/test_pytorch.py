@@ -305,18 +305,19 @@ def test_pytorch_on_training_workload_end_callback_parallel() -> None:
     config = conf.load_config(conf.fixtures_path("pytorch_no_op/const_callbacks.yaml"))
     max_len_batches = 4
     config = conf.set_max_length(config, {"batches": max_len_batches})
-    config = conf.set_slots_per_trial(config, 3)
+    slots_per_trial = 3
+    config = conf.set_slots_per_trial(config, slots_per_trial)
 
     e_id = exp.run_basic_test_with_temp_config(config, conf.fixtures_path("pytorch_no_op"), 1)
-
-    # Expect on_training_workload_end_callback to be called max_len_batches times.
-    patterns = max_len_batches * [
+    pattern_strs = [
         "Calling on_training_workload_end",
         "avg_metrics",
         "batch_metrics",
     ]
+    patterns = [max_len_batches * slots_per_trial * [s] for s in pattern_strs]
     trial_id = exp.experiment_trials(e_id)[0].trial.id
-    exp.assert_patterns_in_trial_logs(trial_id, patterns)
+    for p in patterns:
+        exp.assert_patterns_in_trial_logs(trial_id, p)
 
 
 @pytest.mark.e2e_cpu
@@ -337,10 +338,15 @@ def test_pytorch_on_checkpoint_upload_end_parallel() -> None:
     config = conf.load_config(conf.fixtures_path("pytorch_no_op/const_callbacks.yaml"))
     max_len_batches = 3
     config = conf.set_max_length(config, {"batches": max_len_batches})
-    config = conf.set_slots_per_trial(config, 8)
+    slots_per_trial = 3
+    config = conf.set_slots_per_trial(config, slots_per_trial)
 
     e_id = exp.run_basic_test_with_temp_config(config, conf.fixtures_path("pytorch_no_op"), 1)
 
-    patterns = ["Reported checkpoint to master", "Calling on_checkpoint_upload_end. uuid="]
+    patterns = [
+        ["Reported checkpoint to master"],
+        slots_per_trial * ["Calling on_checkpoint_upload_end. uuid="],
+    ]
     trial_id = exp.experiment_trials(e_id)[0].trial.id
-    exp.assert_patterns_in_trial_logs(trial_id, patterns)
+    for p in patterns:
+        exp.assert_patterns_in_trial_logs(trial_id, p)
