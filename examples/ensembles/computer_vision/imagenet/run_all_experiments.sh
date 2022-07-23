@@ -42,6 +42,6 @@ case $ONE_TWO_ENSEMBLES in
 esac
 
 # Run $NUM_ENSEMBLES ensembles for every X-model ensembles, X in "$NUM_BASE_MODELS"
-python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_COMBINATIONS" -es naive naive_temp naive_logits naive_logits_temp most_confident most_confident_temp majority_vote -mc "$MODEL_CRITERIA" --no_safety_check
-python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_COMBINATIONS" -es vbmc vbmc_temp -mc "$MODEL_CRITERIA" -nc "$NUM_COMBINATIONS" --no_safety_check
-python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_COMBINATIONS" -es super_learner_probs super_learner_logits -mc "$MODEL_CRITERIA" -e "$EPOCHS" -lr "$LR" --no_safety_check
+python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_ENSEMBLES" -es naive naive_temp naive_logits naive_logits_temp most_confident most_confident_temp majority_vote -mc "$MODEL_CRITERIA" --no_safety_check
+python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_ENSEMBLES" -es vbmc vbmc_temp -mc "$MODEL_CRITERIA" -nc "$NUM_COMBINATIONS" --no_safety_check
+python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_ENSEMBLES" -es super_learner_probs super_learner_logits -mc "$MODEL_CRITERIA" -e "$EPOCHS" -lr "$LR" --no_safety_check
