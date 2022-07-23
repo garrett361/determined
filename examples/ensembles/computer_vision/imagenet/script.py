@@ -33,7 +33,9 @@ parser.add_argument("-mc", "--model_criteria", type=str, default="")
 parser.add_argument("-en", "--experiment_name", type=str, default="")
 parser.add_argument("-w", "--workspace", type=str, default="Ensembling")
 parser.add_argument("-mn", "--model_names", nargs="+", type=str, default=[])
-parser.add_argument("-nbm", "--num_base_models", nargs="+", type=int, default=[])
+# Hack: num_base_models will be read as a string, then converted to a list of integers by splitting
+# on spaces.  Allows this script to be used in conjunction with the run_all_experiments.sh script.
+parser.add_argument("-nbm", "--num_base_models", type=str)
 parser.add_argument("-cpp", "--checkpoint_path_prefix", type=str, default="shared_fs/state_dicts/")
 parser.add_argument("-ne", "--num_ensembles", type=int, default=0)
 parser.add_argument("-o", "--offset", type=int, default=0)
@@ -47,6 +49,9 @@ parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-lm", "--list_models", action="store_true")
 parser.add_argument("-nsc", "--no_safety_check", action="store_true")
 args = parser.parse_args()
+
+# Continuation of above hack:
+args.num_base_models = [int(x) for x in args.num_base_models.split()]
 
 if args.model_names and (args.num_base_models or args.num_ensembles or args.model_criteria):
     raise ValueError(
