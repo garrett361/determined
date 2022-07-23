@@ -13,7 +13,7 @@ echo -e "\nThis will run all ensembling experiments with the following parameter
 
 echo "Master URL: $MASTER_URL"
 echo "Number of base models: ${NUM_BASE_MODELS:=3 4 5}"
-read -p "Run all 1- and 2-base-model ensembles ${ONE_TWO_ENSEMBLES:=NO}"
+echo "Run all 1- and 2-base-model ensembles ${ONE_TWO_ENSEMBLES:=NO}"
 echo "Number of Ensembles per strategy, when using > 2 base models: ${NUM_ENSEMBLES:=100}"
 echo "Number of combinations for VBMC: ${NUM_COMBINATIONS:=512}"
 echo "Number of training epochs for SGD training: ${EPOCHS:=3}"
