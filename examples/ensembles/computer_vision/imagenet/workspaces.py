@@ -114,6 +114,7 @@ class Workspace:
         return experiment_idxs
 
     def get_all_projects(self) -> List[Dict[str, Any]]:
+        "Returns a list detailing all Projects in the Workspace."
         url = f"{self.master_url}/api/v1/workspaces/{self.workspace_idx}/projects"
         with self._session() as s:
             response = s.get(url, params={"limit": REQ_LIMIT})
@@ -121,6 +122,7 @@ class Workspace:
         return projects
 
     def get_all_project_names(self) -> List[str]:
+        "Returns a list of all Project names in the Workspace."
         projects = self.get_all_projects()
         names = [p["name"] for p in projects]
         return names
@@ -144,6 +146,9 @@ class Workspace:
     def get_all_experiments(
         self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> List[Dict[str, Any]]:
+        """Returns a list detailing all Experiments in the Workspace. If
+        project_names is specified, only Experiments in the specified Projects are returned.
+        """
         project_idxs = self._get_project_idxs(project_names)
         urls = [f"{self.master_url}/api/v1/projects/{idx}/experiments" for idx in project_idxs]
         project_experiments = asyncio.run(
@@ -159,8 +164,8 @@ class Workspace:
     def get_all_trials(
         self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> List[Dict[str, Any]]:
-        """Returns a list of all trials associated with each experiment in workspace. If
-        project_names is not None, only experiments in the specified Projects are returned.
+        """Returns a list detailing all Trials in the Workspace. If
+        project_names is specified, only Trials in the specified Projects are returned.
         """
         experiments = self.get_all_experiments(project_names)
         experiment_idxs = [exp["id"] for exp in experiments]
@@ -212,6 +217,8 @@ class Workspace:
         asyncio.run(self._gather_from_urls_async(urls, gather_fn=self._delete_async, desc=desc))
 
     def delete_all_experiments(self, projects_to_delete_from: Union[Sequence[str], str]) -> None:
+        """Deletes all Experiments from the specified Projects in the Workspace.  Must be called
+        twice to perform the deletion, as a safety measure."""
         self._idxs_to_delete_set = set(self._get_experiment_idxs(projects_to_delete_from))
         if self._last_delete_called != "delete_all_experiments":
             warnings.warn(
@@ -227,6 +234,9 @@ class Workspace:
     def delete_experiments_with_unvalidated_trials(
         self, projects_to_delete_from: Union[Sequence[str], str]
     ) -> None:
+        """Deletes all Experiments which contain unvalidated Trials from the specified Projects in
+        the Workspace.  Must be called twice to perform the deletion, as a safety measure.
+        """
         if self._last_delete_called != "delete_experiments_with_unvalidated_trials":
             trials = self.get_all_trials(projects_to_delete_from)
             for trial in trials:
