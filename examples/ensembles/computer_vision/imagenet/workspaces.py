@@ -38,11 +38,6 @@ class Workspace:
         self._last_delete_called = ""
         self._idxs_to_delete_set = set()
 
-        self.PARALLEL_REQUESTS = 50
-        self.LIMIT_PER_HOST = 0
-        self.LIMIT = 0
-        self.TTL_DNS_CACHE = 300
-
     def _session(self) -> requests.Session:
         s = requests.Session()
         s.headers = self._headers
@@ -53,11 +48,10 @@ class Workspace:
         login_url = f"{self.master_url}/login"
         try:
             response = requests.post(login_url, data=auth)
+            token = response.json()["token"]
+            return token
         except KeyError:
             print(f"Failed to log in to {self.master_url}. Is master running?")
-            return
-        token = response.json()["token"]
-        return token
 
     def _get_headers(self) -> Dict[str, str]:
         return dict(Cookie=f"auth={self.token}")
@@ -153,7 +147,9 @@ class Workspace:
         project_idxs = self._get_project_idxs(project_names)
         urls = [f"{self.master_url}/api/v1/projects/{idx}/experiments" for idx in project_idxs]
         project_experiments = asyncio.run(
-            self._gather_from_urls(urls, gather_fn=self._get_json, desc="Getting Experiments")
+            self._gather_from_urls_async(
+                urls, gather_fn=self._get_json_async, desc="Getting Experiments"
+            )
         )
         experiments = []
         for p in project_experiments:
@@ -170,7 +166,9 @@ class Workspace:
         experiment_idxs = [exp["id"] for exp in experiments]
         urls = [f"{self.master_url}/api/v1/experiments/{idx}/trials" for idx in experiment_idxs]
         exp_trials = asyncio.run(
-            self._gather_from_urls(urls, gather_fn=self._get_json, desc="Getting Trials")
+            self._gather_from_urls_async(
+                urls, gather_fn=self._get_json_async, desc="Getting Trials"
+            )
         )
         trials = []
         for e in exp_trials:
@@ -211,7 +209,7 @@ class Workspace:
 
     def delete_experiment_idxs(self, experiment_idxs: Set[int], desc: str = "") -> None:
         urls = [f"{self.master_url}/api/v1/experiments/{idx}" for idx in experiment_idxs]
-        asyncio.run(self._gather_from_urls(urls, gather_fn=self._delete, desc=desc))
+        asyncio.run(self._gather_from_urls_async(urls, gather_fn=self._delete_async, desc=desc))
 
     def delete_all_experiments(self, projects_to_delete_from: Union[Sequence[str], str]) -> None:
         self._idxs_to_delete_set = set(self._get_experiment_idxs(projects_to_delete_from))
@@ -246,26 +244,18 @@ class Workspace:
             )
             self._idxs_to_delete_set = set()
 
-    async def _gather_from_urls(
+    async def _gather_from_urls_async(
         self, urls: List[str], gather_fn: Callable, desc: str = ""
     ) -> List[Dict[str, Any]]:
-        """Based on https://blog.jonlu.ca/posts/async-python-http"""
-        conn = aiohttp.TCPConnector(
-            limit_per_host=self.LIMIT_PER_HOST, limit=self.LIMIT, ttl_dns_cache=self.TTL_DNS_CACHE
-        )
-        semaphore = asyncio.Semaphore(self.PARALLEL_REQUESTS)
-        async with aiohttp.ClientSession(connector=conn, headers=self._headers) as session:
+        async with aiohttp.ClientSession(headers=self._headers) as session:
             output = await tqdm_asyncio.gather(
-                *(gather_fn(url, semaphore, session) for url in urls), desc=desc
+                *(gather_fn(url, session) for url in urls), desc=desc
             )
-            conn.close()
             return output
 
-    async def _get_json(self, url, semaphore, session) -> Dict[str, Any]:
-        async with semaphore:
-            async with session.get(url, ssl=False, params={"limit": REQ_LIMIT}) as response:
-                return await response.json()
+    async def _get_json_async(self, url: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
+        async with session.get(url, ssl=False, params={"limit": REQ_LIMIT}) as response:
+            return await response.json()
 
-    async def _delete(self, url, semaphore, session) -> None:
-        async with semaphore:
-            await session.delete(url, ssl=False)
+    async def _delete_async(self, url: str, session: aiohttp.ClientSession) -> None:
+        await session.delete(url, ssl=False)
