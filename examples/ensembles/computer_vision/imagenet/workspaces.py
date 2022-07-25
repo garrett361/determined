@@ -1,11 +1,12 @@
 import asyncio
+import json
+from typing import Any, Callable, Dict, List, Union, Sequence, Set, Optional
 import warnings
 
 import aiohttp
-import json
-from typing import Any, Dict, List, Union, Sequence, Set, Optional
 import pandas as pd
 import requests
+from tqdm.asyncio import tqdm_asyncio
 
 REQ_LIMIT = 2 ** 30
 
@@ -34,11 +35,11 @@ class Workspace:
             self._create_workspace(workspace_name)
         self.workspace_idx = self._get_workspace_idx()
 
-        self._delete_confirmed = False
+        self._last_delete_called = ""
         self._idxs_to_delete_set = set()
 
-        self.PARALLEL_REQUESTS = 100
-        self.LIMIT_PER_HOST = 100
+        self.PARALLEL_REQUESTS = 50
+        self.LIMIT_PER_HOST = 0
         self.LIMIT = 0
         self.TTL_DNS_CACHE = 300
 
@@ -151,7 +152,9 @@ class Workspace:
     ) -> List[Dict[str, Any]]:
         project_idxs = self._get_project_idxs(project_names)
         urls = [f"{self.master_url}/api/v1/projects/{idx}/experiments" for idx in project_idxs]
-        project_experiments = asyncio.run(self._get_json_async(urls))
+        project_experiments = asyncio.run(
+            self._gather_from_urls(urls, gather_fn=self._get_json, desc="Getting Experiments")
+        )
         experiments = []
         for p in project_experiments:
             experiments += p["experiments"]
@@ -166,11 +169,12 @@ class Workspace:
         experiments = self.get_all_experiments(project_names)
         experiment_idxs = [exp["id"] for exp in experiments]
         urls = [f"{self.master_url}/api/v1/experiments/{idx}/trials" for idx in experiment_idxs]
-        exp_trials = asyncio.run(self._get_json_async(urls))
+        exp_trials = asyncio.run(
+            self._gather_from_urls(urls, gather_fn=self._get_json, desc="Getting Trials")
+        )
         trials = []
-        for exp in exp_trials:
-            for t in exp["trials"]:
-                trials.append(t)
+        for e in exp_trials:
+            trials += e["trials"]
         return trials
 
     def get_trial_latest_val_results_dict(
@@ -205,27 +209,27 @@ class Workspace:
         trial_results_df = trial_results_df[sorted(trial_results_df.columns)]
         return trial_results_df
 
-    def delete_experiment_idxs(self, experiment_idxs: Sequence[int]) -> None:
+    def delete_experiment_idxs(self, experiment_idxs: Set[int], desc: str = "") -> None:
         urls = [f"{self.master_url}/api/v1/experiments/{idx}" for idx in experiment_idxs]
-        asyncio.run(self._delete_async(urls))
+        asyncio.run(self._gather_from_urls(urls, gather_fn=self._delete, desc=desc))
 
     def delete_all_experiments(self, projects_to_delete_from: Union[Sequence[str], str]) -> None:
         self._idxs_to_delete_set = set(self._get_experiment_idxs(projects_to_delete_from))
-        if not self._delete_confirmed:
+        if self._last_delete_called != "delete_all_experiments":
             warnings.warn(
                 f"This will delete {len(self._idxs_to_delete_set)} experiments."
                 " Please run a second time to confirm deletion."
             )
-            self._delete_confirmed = True
+            self._last_delete_called = "delete_all_experiments"
         else:
-            self._delete_confirmed = False
-            self.delete_experiment_idxs(self._idxs_to_delete_set)
+            self._last_delete_called = ""
+            self.delete_experiment_idxs(self._idxs_to_delete_set, desc="Deleting all Experiments")
             self._idxs_to_delete_set = set()
 
     def delete_experiments_with_unvalidated_trials(
         self, projects_to_delete_from: Union[Sequence[str], str]
     ) -> None:
-        if not self._delete_confirmed:
+        if self._last_delete_called != "delete_experiments_with_unvalidated_trials":
             trials = self.get_all_trials(projects_to_delete_from)
             for trial in trials:
                 if trial["latestValidation"] is None:
@@ -234,52 +238,34 @@ class Workspace:
                 f"This will delete {len(self._idxs_to_delete_set)} experiments."
                 " Please run a second time to confirm deletion."
             )
-            self._delete_confirmed = True
+            self._last_delete_called = "delete_experiments_with_unvalidated_trials"
         else:
-            self._delete_confirmed = False
-            self.delete_experiment_idxs(self._idxs_to_delete_set)
+            self._last_delete_called = ""
+            self.delete_experiment_idxs(
+                self._idxs_to_delete_set, desc="Deleting unvalidated Experiments"
+            )
             self._idxs_to_delete_set = set()
 
-    async def _get_json_async(self, urls: List[str]) -> List[Dict[str, Any]]:
+    async def _gather_from_urls(
+        self, urls: List[str], gather_fn: Callable, desc: str = ""
+    ) -> List[Dict[str, Any]]:
         """Based on https://blog.jonlu.ca/posts/async-python-http"""
         conn = aiohttp.TCPConnector(
             limit_per_host=self.LIMIT_PER_HOST, limit=self.LIMIT, ttl_dns_cache=self.TTL_DNS_CACHE
         )
-        output = []
+        semaphore = asyncio.Semaphore(self.PARALLEL_REQUESTS)
+        async with aiohttp.ClientSession(connector=conn, headers=self._headers) as session:
+            output = await tqdm_asyncio.gather(
+                *(gather_fn(url, semaphore, session) for url in urls), desc=desc
+            )
+            conn.close()
+            return output
 
-        async def gather_with_concurrency() -> None:
-            semaphore = asyncio.Semaphore(self.PARALLEL_REQUESTS)
-            session = aiohttp.ClientSession(connector=conn, headers=self._headers)
+    async def _get_json(self, url, semaphore, session) -> Dict[str, Any]:
+        async with semaphore:
+            async with session.get(url, ssl=False, params={"limit": REQ_LIMIT}) as response:
+                return await response.json()
 
-            async def get(url) -> None:
-                async with semaphore:
-                    async with session.get(url, ssl=False, params={"limit": REQ_LIMIT}) as response:
-                        obj = await response.json()
-                        output.append(obj)
-
-            await asyncio.gather(*(get(url) for url in urls))
-            await session.close()
-
-        asyncio.run(gather_with_concurrency())
-        conn.close()
-        return output
-
-    async def _delete_async(self, urls) -> None:
-        """Based on https://blog.jonlu.ca/posts/async-python-http"""
-        conn = aiohttp.TCPConnector(
-            limit_per_host=self.LIMIT_PER_HOST, limit=self.LIMIT, ttl_dns_cache=self.TTL_DNS_CACHE
-        )
-
-        async def gather_with_concurrency() -> None:
-            semaphore = asyncio.Semaphore(self.PARALLEL_REQUESTS)
-            session = aiohttp.ClientSession(connector=conn, headers=self._headers)
-
-            async def delete(url):
-                async with semaphore:
-                    await session.delete(url, ssl=False)
-
-            await asyncio.gather(*(delete(url) for url in urls))
-            await session.close()
-
-        asyncio.run(gather_with_concurrency())
-        conn.close()
+    async def _delete(self, url, semaphore, session) -> None:
+        async with semaphore:
+            await session.delete(url, ssl=False)
