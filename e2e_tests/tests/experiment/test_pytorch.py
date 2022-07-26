@@ -315,7 +315,8 @@ def test_pytorch_on_training_workload_end_callback_parallel() -> None:
     pattern_strs = [
         "Calling on_training_workload_end",
         f"avg_metrics {{'loss': {reported_loss}}}",
-        f"batch_metrics [{{'loss': {reported_loss}}}]",
+        f"batch_metrics",
+        f"'loss': {reported_loss}",
     ]
     patterns = [max_len_batches * slots_per_trial * [s] for s in pattern_strs]
     trial_id = exp.experiment_trials(e_id)[0].trial.id
