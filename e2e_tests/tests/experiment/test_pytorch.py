@@ -314,7 +314,7 @@ def test_pytorch_on_training_workload_end_callback_parallel() -> None:
     e_id = exp.run_basic_test_with_temp_config(config, conf.fixtures_path("pytorch_no_op"), 1)
     pattern_strs = [
         "Calling on_training_workload_end",
-        f"avg_metrics: {{'loss': {reported_loss}}}",
+        f"avg_metrics {{'loss': {reported_loss}}}",
         f"batch_metrics [{{'loss': {reported_loss}}}]",
     ]
     patterns = [max_len_batches * slots_per_trial * [s] for s in pattern_strs]
