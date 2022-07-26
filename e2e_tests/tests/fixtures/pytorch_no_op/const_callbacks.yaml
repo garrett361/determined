@@ -17,3 +17,5 @@ min_checkpoint_period:
   batches: 4
 min_validation_period:
   batches: 4
+optimizations:
+  average_training_metrics: True

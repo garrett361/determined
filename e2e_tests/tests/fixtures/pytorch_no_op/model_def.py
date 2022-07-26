@@ -83,6 +83,13 @@ class NoopPyTorchTrialWithCallbacks(NoopPyTorchTrial):
     def build_callbacks(self) -> Dict[str, pytorch.PyTorchCallback]:
         return {"test_callbacks": TestCallbacks()}
 
+    def train_batch(
+        self, batch: pytorch.TorchData, epoch_idx: int, batch_idx: int
+    ) -> Dict[str, torch.Tensor]:
+        rank = loss = self.context.distributed.get_rank()
+        print(f"finished train_batch for rank {rank}, loss = {loss}")
+        return {"loss": loss}
+
 
 class TestCallbacks(pytorch.PyTorchCallback):
     def __init__(self) -> None:
