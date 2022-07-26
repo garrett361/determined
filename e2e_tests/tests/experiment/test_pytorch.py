@@ -309,7 +309,7 @@ def test_pytorch_on_training_workload_end_callback_parallel() -> None:
     slots_per_trial = 3
     config = conf.set_slots_per_trial(config, slots_per_trial)
 
-    reported_loss = torch.tensor([n for n in range(1, slots_per_trial + 1)]).mean().item()
+    reported_loss = torch.tensor([float(n) for n in range(slots_per_trial)]).mean().item()
 
     e_id = exp.run_basic_test_with_temp_config(config, conf.fixtures_path("pytorch_no_op"), 1)
     pattern_strs = [
