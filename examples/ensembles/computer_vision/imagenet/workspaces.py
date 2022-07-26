@@ -161,6 +161,18 @@ class Workspace:
             experiments += p["experiments"]
         return experiments
 
+    def get_all_trial_ids(
+        self, project_names: Optional[Union[Sequence[str], str]] = None
+    ) -> List[int]:
+        """Returns a list of all IDs for Trials in the Workspace. If project_names is specified,
+        only Trials in the specified Projects are returned.
+        """
+        experiments = self.get_all_experiments(project_names=project_names)
+        trial_ids = []
+        for e in experiments:
+            trial_ids += e["trialIds"]
+        return trial_ids
+
     def get_all_trials(
         self, project_names: Optional[Union[Sequence[str], str]] = None
     ) -> List[Dict[str, Any]]:
