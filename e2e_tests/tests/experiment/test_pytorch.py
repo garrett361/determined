@@ -1,6 +1,7 @@
 from typing import Callable, List
 
 import pytest
+import torch
 
 from determined.experimental import Determined
 from tests import config as conf
@@ -308,11 +309,13 @@ def test_pytorch_on_training_workload_end_callback_parallel() -> None:
     slots_per_trial = 3
     config = conf.set_slots_per_trial(config, slots_per_trial)
 
+    reported_loss = torch.tensor([n for n in range(1, slots_per_trial + 1)]).mean().item()
+
     e_id = exp.run_basic_test_with_temp_config(config, conf.fixtures_path("pytorch_no_op"), 1)
     pattern_strs = [
         "Calling on_training_workload_end",
-        "avg_metrics",
-        "batch_metrics",
+        f"avg_metrics: {{'loss': {reported_loss}}}",
+        f"batch_metrics [{{'loss': {reported_loss}}}]",
     ]
     patterns = [max_len_batches * slots_per_trial * [s] for s in pattern_strs]
     trial_id = exp.experiment_trials(e_id)[0].trial.id
