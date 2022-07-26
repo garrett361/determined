@@ -40,6 +40,7 @@ class PyTorchTrialController(det.TrialController):
         if torch.cuda.is_available():
             self.prof._set_sync_device(self._sync_device)
         self.callbacks = self.trial.build_callbacks()
+        logging.warning("BUILDING CALLBACKS")
         for callback in self.callbacks.values():
             if util.is_overridden(callback.on_checkpoint_end, pytorch.PyTorchCallback):
                 warnings.warn(
