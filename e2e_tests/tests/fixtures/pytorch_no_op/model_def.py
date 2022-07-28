@@ -105,5 +105,5 @@ class TestCallbacks(pytorch.PyTorchCallback):
     def on_checkpoint_upload_end(self, uuid: str) -> None:
         print(f"Calling on_checkpoint_upload_end. uuid={uuid}")
 
-    def on_checkpoint_end(self, dir: str) -> None:
+    def on_checkpoint_end(self, checkpoint_dir: str) -> None:
         print("Deprecated on_checkpoint_end call")
