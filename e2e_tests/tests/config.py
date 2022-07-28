@@ -202,3 +202,9 @@ def set_entrypoint(config: Dict[Any, Any], entrypoint: str) -> Dict[Any, Any]:
     config = config.copy()
     config["entrypoint"] = entrypoint
     return config
+
+
+def set_scheduling_unit(config: Dict[Any, Any], scheduling_unit: int) -> Dict[Any, Any]:
+    config = config.copy()
+    config["scheduling_unit"] = scheduling_unit
+    return config

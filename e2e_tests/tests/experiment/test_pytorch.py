@@ -304,10 +304,14 @@ def test_pytorch_on_training_workload_end_callback() -> None:
 @pytest.mark.parallel
 def test_pytorch_on_training_workload_end_callback_parallel() -> None:
     config = conf.load_config(conf.fixtures_path("pytorch_no_op/const_callbacks.yaml"))
-    max_len_batches = 4
-    config = conf.set_max_length(config, {"batches": max_len_batches})
+    max_len_batches = min_validation_period = min_checkpoint_period = 4
     slots_per_trial = 3
+    scheduling_unit = 2
+    config = conf.set_max_length(config, {"batches": max_len_batches})
+    config = conf.set_min_validation_period(config, {"batches": min_validation_period})
+    config = conf.set_min_checkpoint_period(config, {"batches": min_checkpoint_period})
     config = conf.set_slots_per_trial(config, slots_per_trial)
+    config = conf.set_scheduling_unit(config, scheduling_unit)
 
     reported_loss = torch.tensor([float(n) for n in range(slots_per_trial)]).mean().item()
 
@@ -318,7 +322,7 @@ def test_pytorch_on_training_workload_end_callback_parallel() -> None:
         f"batch_metrics",
         f"'loss': {reported_loss}",
     ]
-    patterns = [max_len_batches * slots_per_trial * [s] for s in pattern_strs]
+    patterns = [max_len_batches * slots_per_trial // scheduling_unit * [s] for s in pattern_strs]
     trial_id = exp.experiment_trials(e_id)[0].trial.id
     for p in patterns:
         exp.assert_patterns_in_trial_logs(trial_id, p)
@@ -341,8 +345,8 @@ def test_pytorch_on_checkpoint_upload_end() -> None:
 def test_pytorch_on_checkpoint_upload_end_parallel() -> None:
     config = conf.load_config(conf.fixtures_path("pytorch_no_op/const_callbacks.yaml"))
     max_len_batches = 3
-    config = conf.set_max_length(config, {"batches": max_len_batches})
     slots_per_trial = 3
+    config = conf.set_max_length(config, {"batches": max_len_batches})
     config = conf.set_slots_per_trial(config, slots_per_trial)
 
     e_id = exp.run_basic_test_with_temp_config(config, conf.fixtures_path("pytorch_no_op"), 1)
