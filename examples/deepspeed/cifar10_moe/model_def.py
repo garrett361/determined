@@ -1,7 +1,7 @@
 import os
 import filelock
 import datetime
-from typing import Any, Dict
+from typing import Any, Dict, List
 from attrdict import AttrDict
 import torch
 import torchvision
@@ -10,7 +10,7 @@ import deepspeed
 import torch.nn as nn
 import torch.nn.functional as F
 
-from determined.pytorch import DataLoader
+from determined.pytorch import DataLoader, PyTorchCallback, TorchData
 from determined.pytorch.deepspeed import (
     DeepSpeedTrial,
     DeepSpeedTrialContext,
@@ -38,10 +38,12 @@ class Net(nn.Module):
                         expert=fc3,
                         num_experts=n_e,
                         ep_size=args.ep_world_size,
-                        use_residual=args.mlp_type == 'residual',
+                        use_residual=args.mlp_type == "residual",
                         k=args.top_k,
                         min_capacity=args.min_capacity,
-                        noisy_gate_policy=args.noisy_gate_policy))
+                        noisy_gate_policy=args.noisy_gate_policy,
+                    )
+                )
             self.moe_layer_list = nn.ModuleList(self.moe_layer_list)
             self.fc4 = nn.Linear(84, 10)
         else:
@@ -65,10 +67,7 @@ class Net(nn.Module):
 def create_moe_param_groups(model):
     from deepspeed.moe.utils import split_params_into_different_moe_groups_for_optimizer
 
-    parameters = {
-        'params': [p for p in model.parameters()],
-        'name': 'parameters'
-    }
+    parameters = {"params": [p for p in model.parameters()], "name": "parameters"}
 
     return split_params_into_different_moe_groups_for_optimizer(parameters)
 
@@ -101,9 +100,7 @@ class CIFARTrial(DeepSpeedTrial):
             for_training=False,
         )
 
-    def train_batch(
-        self, iter_dataloader, epoch_idx, batch_idx
-    ) -> Dict[str, torch.Tensor]:
+    def train_batch(self, iter_dataloader, epoch_idx, batch_idx) -> Dict[str, torch.Tensor]:
         batch = self.context.to_device(next(iter_dataloader))
         inputs, labels = batch[0], batch[1]
         if self.fp16:
@@ -170,3 +167,36 @@ class CIFARTrial(DeepSpeedTrial):
             shuffle=False,
             num_workers=2,
         )
+
+
+class CIFARTrialTEST(CIFARTrial):
+    def __init__(self, context: DeepSpeedTrialContext) -> None:
+        super().__init__(context)
+
+    def build_callbacks(self) -> Dict[str, PyTorchCallback]:
+        return {"test_callbacks": TestCallbacks()}
+
+    def train_batch(
+        self, batch: TorchData, epoch_idx: int, batch_idx: int
+    ) -> Dict[str, torch.Tensor]:
+        rank = loss = self.context.distributed.get_rank()
+        print(f"finished train_batch for rank {rank}, loss = {loss}")
+        return {"loss": loss}
+
+
+class TestCallbacks(PyTorchCallback):
+    def __init__(self) -> None:
+        pass
+
+    def on_training_workload_end(
+        self, avg_metrics: List[Dict[str, Any]], batch_metrics: Dict[str, Any]
+    ) -> None:
+        print("Calling on_training_workload_end")
+        print("avg_metrics", avg_metrics)
+        print("batch_metrics", batch_metrics)
+
+    def on_checkpoint_upload_end(self, uuid: str) -> None:
+        print(f"Calling on_checkpoint_upload_end. uuid={uuid}")
+
+    def on_checkpoint_end(self, checkpoint_dir: str) -> None:
+        print("Deprecated on_checkpoint_end call")
