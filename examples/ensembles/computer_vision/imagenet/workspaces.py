@@ -150,10 +150,15 @@ class Workspace:
         project_names is specified, only Experiments in the specified Projects are returned.
         """
         project_idxs = self._get_project_idxs(project_names)
-        urls = [f"{self.master_url}/api/v1/projects/{idx}/experiments" for idx in project_idxs]
+        gather_fn_kwargs = (
+            {"url": f"{self.master_url}/api/v1/experiments", "params": {"projectId": idx}}
+            for idx in project_idxs
+        )
         project_experiments = asyncio.run(
-            self._gather_from_urls_async(
-                urls, gather_fn=self._get_json_async, desc="Getting Experiments"
+            self._gather(
+                gather_fn=self._get_json_async,
+                gather_fn_kwargs=gather_fn_kwargs,
+                desc="Getting Experiments",
             )
         )
         experiments = []
@@ -181,10 +186,14 @@ class Workspace:
         """
         experiments = self.get_all_experiments(project_names)
         experiment_idxs = [exp["id"] for exp in experiments]
-        urls = [f"{self.master_url}/api/v1/experiments/{idx}/trials" for idx in experiment_idxs]
+        gather_fn_kwargs = [
+            {"url": f"{self.master_url}/api/v1/experiments/{idx}/trials"} for idx in experiment_idxs
+        ]
         exp_trials = asyncio.run(
-            self._gather_from_urls_async(
-                urls, gather_fn=self._get_json_async, desc="Getting Trials"
+            self._gather(
+                gather_fn=self._get_json_async,
+                gather_fn_kwargs=gather_fn_kwargs,
+                desc="Getting Trials",
             )
         )
         trials = []
@@ -225,8 +234,12 @@ class Workspace:
         return trial_results_df
 
     def delete_experiment_idxs(self, experiment_idxs: Set[int], desc: str = "") -> None:
-        urls = [f"{self.master_url}/api/v1/experiments/{idx}" for idx in experiment_idxs]
-        asyncio.run(self._gather_from_urls_async(urls, gather_fn=self._delete_async, desc=desc))
+        gather_fn_kwargs = (
+            {"url": f"{self.master_url}/api/v1/experiments/{idx}"} for idx in experiment_idxs
+        )
+        asyncio.run(
+            self._gather(gather_fn=self._delete_async, gather_fn_kwargs=gather_fn_kwargs, desc=desc)
+        )
 
     def delete_all_experiments(self, projects_to_delete_from: Union[Sequence[str], str]) -> None:
         """Deletes all Experiments from the specified Projects in the Workspace.  Must be called
@@ -266,18 +279,33 @@ class Workspace:
             )
             self._idxs_to_delete_set = set()
 
-    async def _gather_from_urls_async(
-        self, urls: List[str], gather_fn: Callable, desc: str = ""
+    async def _gather(
+        self, gather_fn: Callable, gather_fn_kwargs: List[Dict[str, Any]], desc: str = ""
     ) -> List[Dict[str, Any]]:
         async with aiohttp.ClientSession(headers=self._headers) as session:
             output = await tqdm_asyncio.gather(
-                *(gather_fn(url, session) for url in urls), desc=desc
+                *(gather_fn(session, **kwarg) for kwarg in gather_fn_kwargs),
+                desc=desc,
             )
             return output
 
-    async def _get_json_async(self, url: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
-        async with session.get(url, ssl=False, params={"limit": REQ_LIMIT}) as response:
+    async def _get_json_async(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        default_params = {"limit": REQ_LIMIT}
+        if params is None:
+            params = default_params
+        else:
+            params = {**default_params, **params}
+        async with session.get(url, ssl=False, params=params) as response:
             return await response.json()
 
-    async def _delete_async(self, url: str, session: aiohttp.ClientSession) -> None:
+    async def _delete_async(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+    ) -> None:
         await session.delete(url, ssl=False)
