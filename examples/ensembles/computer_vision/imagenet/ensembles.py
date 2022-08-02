@@ -1,7 +1,9 @@
 import abc
-from typing import Any, Callable, Dict, List, Optional
+import random
+from typing import Any, Callable, Dict, List, Optional, Union
 import warnings
 
+import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -20,7 +22,8 @@ class Ensemble(nn.Module):
     def __init__(
         self,
         core_context,
-        model_list: List[nn.Module],
+        models: List[nn.Module],
+        transforms: Union[Callable, List[Callable]],
         train_batch_size: int,
         val_batch_size: int,
         dataset_name: str,
@@ -30,10 +33,12 @@ class Ensemble(nn.Module):
         num_combinations: Optional[int] = None,
         lr: Optional[float] = None,
         epochs: Optional[int] = None,
+        random_seed: int = 42,
     ) -> None:
         super().__init__()
         self.core_context = core_context
-        self.models = nn.ModuleList(model_list)
+        self.models = nn.ModuleList(models)
+        self.transforms = transforms
         self.num_models = len(self.models)
         self.models.eval()
         self.train_batch_size = train_batch_size
@@ -47,6 +52,7 @@ class Ensemble(nn.Module):
         self.num_combinations = num_combinations
         self.lr = lr
         self.epochs = epochs
+        self.random_seed = random_seed
 
         self.rank = core_context.distributed.rank
         self.is_distributed = core_context.distributed.size > 1
@@ -79,13 +85,17 @@ class Ensemble(nn.Module):
 
         if self._strategy.requires_training:
             print(f"Building train_dataset")
-            self.train_dataset = data.get_dataset(name=self.dataset_name, split="train")
+            self.train_dataset = data.get_dataset(
+                name=self.dataset_name, split="train", transforms=self.transforms
+            )
             print(f"{len(self.train_dataset)} records in train_dataset")
         else:
             print(f"Skipping building train_dataset")
             self.train_dataset = None
         print(f"Building val_dataset")
-        self.val_dataset = data.get_dataset(name=self.dataset_name, split="val")
+        self.val_dataset = data.get_dataset(
+            name=self.dataset_name, split="val", transforms=self.transforms
+        )
         print(f"{len(self.val_dataset)} records in val_dataset")
         self.trained_batches = 0
         self.train_loader = self.build_train_loader()
@@ -125,6 +135,11 @@ class Ensemble(nn.Module):
             self.loss_metric.to(self.device)
         else:
             self.loss_metric = None
+
+    def _set_random_seeds(self) -> None:
+        random.seed(self.random_seed)
+        np.random.seed(self.random_seed)
+        torch.random.manual_seed(self.random_seed)
 
     def build_train_loader(self) -> DataLoader:
         # Not every ensembling strategy needs a train loader
