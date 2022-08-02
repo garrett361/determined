@@ -1,5 +1,4 @@
 import argparse
-import asyncio
 import contextlib
 import math
 import os
@@ -74,7 +73,7 @@ num_ensemble_strategies = len(args.ensemble_strategy)
 if args.num_ensembles != -1:
     num_experiments = num_ensemble_strategies * len(args.num_base_models) * args.num_ensembles
 else:
-    base_model_collection_size = len(timm_models.get_model_names(args.model_criteria))
+    base_model_collection_size = len(timm_models.get_model_names_from_criteria(args.model_criteria))
     num_experiments = num_ensemble_strategies * sum(
         math.comb(base_model_collection_size, n) for n in args.num_base_models
     )
@@ -150,6 +149,6 @@ for strategy in args.ensemble_strategy:
             )
         desc = f"{num_base_models} model{'s' if num_base_models != 1 else ''} {strategy} ensembles"
         for model_names in tqdm.tqdm(ensembles, desc=desc):
-            config["hyperparameters"]["model_names"] = model_names
+            config["hyperparameters"]["model_names"] = list(model_names)
             with suppress_stdout():
                 client.create_experiment(config=config, model_dir=".")
