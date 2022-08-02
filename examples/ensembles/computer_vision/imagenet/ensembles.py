@@ -19,6 +19,12 @@ MAX_EXP_ARG = 88.0
 
 
 class Ensemble(nn.Module):
+    """
+    Class for quickly training and validating various ensemble strategies.
+    TODO: Currently assuming each model gets a differently transformed input; can optimize when
+    multiple transforms are the same.
+    """
+
     def __init__(
         self,
         core_context,
@@ -168,12 +174,14 @@ class Ensemble(nn.Module):
         print("Building ensemble...")
         self._strategy.build_fn()
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+    def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
         """Returns logits for the models, stacked along the last dimension."""
-        model_logits = torch.stack([model(inputs) for model in self.models], dim=-1)
+        model_logits = torch.stack(
+            [model(input) for model, input in zip(self.models, inputs)], dim=-1
+        )
         return model_logits
 
-    def get_ensembled_preds_from_inputs(self, inputs: torch.Tensor) -> torch.Tensor:
+    def get_ensembled_preds_from_inputs(self, inputs: List[torch.Tensor]) -> torch.Tensor:
         """Returns predictions for the ensembled model."""
         logits = self(inputs)
         ensembled_preds = self._strategy.pred_fn(logits)
@@ -187,7 +195,8 @@ class Ensemble(nn.Module):
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm.tqdm(self.val_loader, desc="Validating")):
                 inputs, labels = batch
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                inputs = [inpt.to(self.device) for inpt in inputs]
+                labels = labels.to(self.device)
                 probs = self.get_ensembled_preds_from_inputs(inputs)
                 self.update_metrics(probs, labels)
             if self.is_chief:

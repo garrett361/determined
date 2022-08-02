@@ -7,12 +7,16 @@ import pandas as pd
 import pickle
 from timm.data import create_transform
 import torch
-import torch.nn as nn
 from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 
+SMALL_TIMM_MODELS_DF = pd.read_feather("small_timm_models.feather").set_index("model")
+TOP_TIMM_MODELS_DF = pd.read_feather("top_timm_models.feather").set_index("model")
+ALL_MODELS_DF = pd.concat([SMALL_TIMM_MODELS_DF, TOP_TIMM_MODELS_DF])
+
 ImageStat = Union[Tuple[float], Tuple[float, float, float]]
 TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
+
 
 # Path to the train/val/test index splitting pkl file.
 SPLIT_PICKLE_PATH = "imagenetv2_train_val_test_idx_mappings.pkl"
@@ -32,9 +36,8 @@ class RAMImageFolder:
         im_folder = ImageFolder(root=root, target_transform=target_transform)
         self.samples = []
         for im, target in im_folder:
-            sample = [transform(im) for transform in transforms]
-            sample.append(target)
-            self.samples.append(sample)
+            transformed_ims = [transform(im) for transform in transforms]
+            self.samples.append((transformed_ims, target))
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -178,18 +181,6 @@ def build_target_transform(path: str) -> Callable:
     return label_transform
 
 
-def build_data_transform(dataset_metadata: attrdict.AttrDict, model_data: pd.Series) -> Callable:
-    """Generate transforms via timm's transform factory."""
-    return create_transform(
-        input_size=model_data.img_size,
-        is_training=False,
-        mean=dataset_metadata.mean,
-        std=dataset_metadata.std,
-        interpolation=model_data.interpolation,
-        crop_pct=model_data.crop_pct,
-    )
-
-
 def get_dataset(
     name: str,
     split: Literal["train", "val", "test"],
@@ -209,3 +200,21 @@ def get_dataset(
             transforms=transforms,
         )
     return dataset
+
+
+def build_timm_transforms(model_names: List[str], dataset_name: str) -> List[Callable]:
+    """Returns a list of models, each of which is a timm model."""
+    dataset_metadata = DATASET_METADATA_BY_NAME[dataset_name].to_attrdict()
+    transforms = []
+    for name in model_names:
+        model_data = ALL_MODELS_DF.loc[name]
+        transform = create_transform(
+            input_size=model_data.img_size,
+            is_training=False,
+            mean=dataset_metadata.mean,
+            std=dataset_metadata.std,
+            interpolation=model_data.interpolation,
+            crop_pct=model_data.crop_pct,
+        )
+        transforms.append(transform)
+    return transforms
