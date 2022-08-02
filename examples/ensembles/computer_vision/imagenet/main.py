@@ -11,12 +11,10 @@ import timm_models
 def main(core_context, hparams: Dict[str, Any]) -> None:
     hparams = attrdict.AttrDict(hparams)
 
-    model_list = timm_models.build_timm_model_list(
-        hparams.model_names, hparams.checkpoint_path_prefix
-    )
     trainer = ensembles.Ensemble(
         core_context,
-        model_list=model_list,
+        models=models,
+        transforms=transforms,
         train_batch_size=hparams.train_batch_size,
         val_batch_size=hparams.val_batch_size,
         dataset_name=hparams.dataset_name,

@@ -46,7 +46,6 @@ parser.add_argument("-lr", "--learning-rate", type=float, default=None)
 parser.add_argument("-e", "--epochs", type=int, default=None)
 parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
-parser.add_argument("-lm", "--list_models", action="store_true")
 parser.add_argument("-nsc", "--no_safety_check", action="store_true")
 args = parser.parse_args()
 
@@ -65,8 +64,6 @@ if args.model_names:
 
 # Generate experiment names from command line arguments, if none provided.
 generate_names = args.experiment_name == ""
-if args.list_models:
-    print(timm_models.get_all_model_names())
 # Append '_test' to the given workspace name, if --test is set.
 workspace_name = args.workspace + ("_test" if args.test else "")
 
@@ -77,7 +74,7 @@ num_ensemble_strategies = len(args.ensemble_strategy)
 if args.num_ensembles != -1:
     num_experiments = num_ensemble_strategies * len(args.num_base_models) * args.num_ensembles
 else:
-    base_model_collection_size = len(timm_models.get_model_names_from_criteria(args.model_criteria))
+    base_model_collection_size = len(timm_models.get_model_names(args.model_criteria))
     num_experiments = num_ensemble_strategies * sum(
         math.comb(base_model_collection_size, n) for n in args.num_base_models
     )

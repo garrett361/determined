@@ -3,6 +3,7 @@ from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Uni
 import os
 
 import attrdict
+import pandas as pd
 import pickle
 from timm.data import create_transform
 import torch
@@ -13,21 +14,27 @@ from torchvision.datasets import ImageFolder
 ImageStat = Union[Tuple[float], Tuple[float, float, float]]
 TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
 
-# We only use timm models which have the following:
-INTERPOLATION = "bicubic"
-CROP_PCT = 0.875
 # Path to the train/val/test index splitting pkl file.
 SPLIT_PICKLE_PATH = "imagenetv2_train_val_test_idx_mappings.pkl"
 
 
 class RAMImageFolder:
-    """Loads the usual ImageFolder results into memory."""
+    """Loads the usual ImageFolder results into memory. Can accept a list or tuple of transforms."""
 
-    def __init__(self, *args, **kwargs) -> None:
-        im_folder = ImageFolder(*args, **kwargs)
+    def __init__(
+        self,
+        root: str,
+        target_transform: Callable,
+        transforms: Union[Callable, Sequence[Callable]],
+    ) -> None:
+        if not isinstance(transforms, Sequence):
+            transforms = [transforms]
+        im_folder = ImageFolder(root=root, target_transform=target_transform)
         self.samples = []
-        for im_t, label_t in im_folder:
-            self.samples.append((im_t, label_t))
+        for im, target in im_folder:
+            sample = [transform(im) for transform in transforms]
+            sample.append(target)
+            self.samples.append(sample)
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -41,15 +48,18 @@ class RAMImageFolder:
 class SplitImageNetv2ImageFolder(ImageFolder):
     def __init__(
         self,
+        root: str,
         split: Literal["train", "val", "test"],
+        transforms: Union[Callable, Sequence[Callable]],
         split_pkl_path: str = SPLIT_PICKLE_PATH,
-        *args,
-        **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(root=root)
         with open(split_pkl_path, "rb") as f:
             self._split_mappings = pickle.load(f)
         self.idx_mapping = self._split_mappings[split]
+        if not isinstance(transforms, Sequence):
+            transforms = [transforms]
+        self.transforms = transforms
 
     def __len__(self) -> int:
         return len(self.idx_mapping)
@@ -57,13 +67,12 @@ class SplitImageNetv2ImageFolder(ImageFolder):
     def __getitem__(self, idx: int) -> TorchData:
         index = self.idx_mapping[idx]
         path, target = self.samples[index]
-        sample = self.loader(path)
-        if self.transform is not None:
-            sample = self.transform(sample)
+        img = self.loader(path)
+        transformed_imgs = [transform(img) for transform in self.transforms]
         if self.target_transform is not None:
             target = self.target_transform(target)
 
-        return sample, target
+        return transformed_imgs, target
 
     def find_classes(self, directory: str) -> Tuple[List[str], Dict[str, int]]:
         classes = sorted(entry.name for entry in os.scandir(directory) if entry.is_dir())
@@ -169,43 +178,34 @@ def build_target_transform(path: str) -> Callable:
     return label_transform
 
 
-def build_basic_train_transform(
-    dataset_metadata: attrdict.AttrDict,
-    transform_config: Optional[dict] = None,
-) -> nn.Module:
-    """Generate transforms via timm's transform factory, but always using training mode and bicubic
-    interpolation and crop_pct = 0.875. We will also filter the base models on these criteria.
-    """
-    transform_config = transform_config or {}
+def build_data_transform(dataset_metadata: attrdict.AttrDict, model_data: pd.Series) -> Callable:
+    """Generate transforms via timm's transform factory."""
     return create_transform(
-        input_size=dataset_metadata.img_size,
+        input_size=model_data.img_size,
         is_training=False,
         mean=dataset_metadata.mean,
         std=dataset_metadata.std,
-        interpolation=INTERPOLATION,
-        crop_pct=CROP_PCT,
-        **transform_config,
+        interpolation=model_data.interpolation,
+        crop_pct=model_data.crop_pct,
     )
 
 
 def get_dataset(
     name: str,
     split: Literal["train", "val", "test"],
-    transform_config: Optional[dict] = None,
+    transforms: Union[Callable, List[Callable]] = None,
 ) -> Dataset:
-    transform_config = transform_config or {}
     dataset_metadata = DATASET_METADATA_BY_NAME[name].to_attrdict()
-    transform = build_basic_train_transform(dataset_metadata, transform_config=transform_config)
     if dataset_metadata.dataset_class == RAMImageFolder:
         root = dataset_metadata.root + "/" + split
         target_transform = build_target_transform(dataset_metadata.target_transform_path)
         dataset = dataset_metadata.dataset_class(
-            root=root, transform=transform, target_transform=target_transform
+            root=root, transforms=transforms, target_transform=target_transform
         )
     elif dataset_metadata.dataset_class == SplitImageNetv2ImageFolder:
         dataset = dataset_metadata.dataset_class(
             split=split,
             root=dataset_metadata.root,
-            transform=transform,
+            transforms=transforms,
         )
     return dataset
