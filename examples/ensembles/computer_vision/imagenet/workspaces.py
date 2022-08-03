@@ -241,7 +241,7 @@ class Workspace:
             self._gather(gather_fn=self._delete_async, gather_fn_kwargs=gather_fn_kwargs, desc=desc)
         )
 
-    def delete_all_experiments(self, projects_to_delete_from: Union[Sequence[str], str]) -> None:
+    def delete_all_experiments(self, *, projects_to_delete_from: Union[Sequence[str], str]) -> None:
         """Deletes all Experiments from the specified Projects in the Workspace.  Must be called
         twice to perform the deletion, as a safety measure."""
         self._idxs_to_delete_set = set(self._get_experiment_idxs(projects_to_delete_from))
@@ -257,7 +257,7 @@ class Workspace:
             self._idxs_to_delete_set = set()
 
     def delete_experiments_with_unvalidated_trials(
-        self, projects_to_delete_from: Union[Sequence[str], str]
+        self, *, projects_to_delete_from: Union[Sequence[str], str]
     ) -> None:
         """Deletes all Experiments which contain unvalidated Trials from the specified Projects in
         the Workspace.  Must be called twice to perform the deletion, as a safety measure.
