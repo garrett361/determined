@@ -69,7 +69,10 @@ workspace_name = args.workspace + ("_test" if args.test else "")
 # If a non-blank project_name is provided, use that project; otherwise use the dataset_name
 project_name = args.project_name or args.dataset_name
 
-client.login(master=args.master, user=args.user, password=args.password)
+
+with suppress_stdout():
+    client.login(master=args.master, user=args.user, password=args.password)
+
 
 num_ensemble_strategies = len(args.ensemble_strategy)
 

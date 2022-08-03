@@ -57,7 +57,7 @@ class Workspace:
         return dict(Cookie=f"auth={self.token}")
 
     def _create_workspace(self, workspace_name: str) -> None:
-        """Creates a new workspace, if it doesn't already exist."""
+        """Creates a new Workspace, if it doesn't already exist."""
         workspace_idx = None
         try:
             workspace_idx = self._get_workspace_idx()
@@ -83,7 +83,7 @@ class Workspace:
                 workspace_idx = workspace["id"]
                 break
         if workspace_idx is None:
-            raise ValueError(f"{self.workspace_name} workspace not found!")
+            raise ValueError(f"{self.workspace_name} Workspace not found!")
         return workspace_idx
 
     def _get_project_idxs(
@@ -103,7 +103,7 @@ class Workspace:
                 project_idxs.add(wp["id"])
                 project_names.remove(wp_name)
         if project_names:
-            raise KeyError(f"Projects {project_names} not found in workspace.")
+            raise KeyError(f"Projects {project_names} not found in Workspace.")
         return project_idxs
 
     def _get_experiment_idxs(
@@ -131,7 +131,7 @@ class Workspace:
         """Creates a new project in the Workspace, if it doesn't already exist."""
         try:
             self._get_project_idxs(project_name)
-            print(f"Project {project_name} already exists in the {self.workspace_name} workspace.")
+            print(f"Project {project_name} already exists in the {self.workspace_name} Workspace.")
             return
         except KeyError:
             url = f"{self.master_url}/api/v1/workspaces/{self.workspace_idx}/projects"
