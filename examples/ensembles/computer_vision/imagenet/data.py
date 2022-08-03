@@ -5,8 +5,9 @@ import os
 import attrdict
 import pandas as pd
 import pickle
-from timm.data import create_transform
+import timm
 import torch
+import torch.nn as nn
 from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 
@@ -202,19 +203,11 @@ def get_dataset(
     return dataset
 
 
-def build_timm_transforms(model_names: List[str], dataset_name: str) -> List[Callable]:
-    """Returns a list of models, each of which is a timm model."""
-    dataset_metadata = DATASET_METADATA_BY_NAME[dataset_name].to_attrdict()
+def build_timm_transforms(models: List[nn.Module]) -> List[Callable]:
+    """Returns a list of timm transforms from a list of timm models."""
     transforms = []
-    for name in model_names:
-        model_data = ALL_MODELS_DF.loc[name]
-        transform = create_transform(
-            input_size=model_data.img_size,
-            is_training=False,
-            mean=dataset_metadata.mean,
-            std=dataset_metadata.std,
-            interpolation=model_data.interpolation,
-            crop_pct=model_data.crop_pct,
-        )
+    for model in models:
+        transform_kwargs = timm.data.resolve_data_config(model)
+        transform = timm.data.create_transform(is_training=False, **transform_kwargs)
         transforms.append(transform)
     return transforms
