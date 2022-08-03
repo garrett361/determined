@@ -68,6 +68,13 @@ generate_names = args.experiment_name == ""
 workspace_name = args.workspace + ("_test" if args.test else "")
 # If a non-blank project_name is provided, use that project; otherwise use the dataset_name
 project_name = args.project_name or args.dataset_name
+workspace = workspaces.Workspace(
+    workspace_name=workspace_name,
+    master_url=args.master,
+    username=args.user,
+    password=args.password,
+)
+workspace.create_project(project_name)
 
 
 with suppress_stdout():
@@ -135,14 +142,6 @@ for strategy in args.ensemble_strategy:
                 "epochs": args.epochs,
             },
         }
-
-        workspace = workspaces.Workspace(
-            workspace_name=config["workspace"],
-            master_url=args.master,
-            username=args.user,
-            password=args.password,
-        )
-        workspace.create_project(config["project"])
 
         if args.model_names:
             ensembles = [args.model_names]
