@@ -317,9 +317,9 @@ class Ensemble(nn.Module):
                     mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
                     score_label_mean = (probs * score).sum(dim=1)
                     score2_label_mean = (probs * score ** 2).sum(dim=1)
-                    base_gradient = score_label_mean.mean(dim=0) - mean_true_score
-                    base_hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
-                    delta_beta = self._conjugate_gradient(base_gradient, base_hessian)
+                    gradient = score_label_mean.mean(dim=0) - mean_true_score
+                    hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
+                    delta_beta = delta_beta = -1 * gradient / hessian
                     # Clamp to help prevent runaways due to noise
                     delta_beta = delta_beta.clamp(min=-clip_magnitude, max=clip_magnitude)
                     self.beta += delta_beta
@@ -335,31 +335,31 @@ class Ensemble(nn.Module):
 
     def _conjugate_gradient(
         self,
-        base_gradient: torch.Tensor,
-        base_hessian: torch.Tensor,
+        gradient: torch.Tensor,
+        hessian: torch.Tensor,
         initial_guess: Optional[torch.Tensor] = None,
         grad_stop_threshold: float = 1e-8,
     ) -> torch.Tensor:
         with torch.no_grad():
             if self.sanity_check:
-                assert len(base_gradient.shape) == 1
-                for dim_size in base_hessian.shape:
-                    assert base_gradient.shape[0] == dim_size
-            num_steps = base_gradient.shape[0]
-            x_prev = initial_guess if initial_guess is not None else torch.zeros_like(base_gradient)
-            g_prev = base_gradient + base_hessian @ x_prev
+                assert len(gradient.shape) == 1
+                for dim_size in hessian.shape:
+                    assert gradient.shape[0] == dim_size
+            num_steps = gradient.shape[0]
+            x_prev = initial_guess if initial_guess is not None else torch.zeros_like(gradient)
+            g_prev = gradient + hessian @ x_prev
             p_prev = g_prev
             g_prev_squared = g_prev @ g_prev
 
             for step in range(num_steps):
-                Hp_prev = base_hessian @ p_prev
+                Hp_prev = hessian @ p_prev
                 alpha_prev = -g_prev_squared / (p_prev @ Hp_prev)
                 x_next = x_prev + alpha_prev * p_prev
                 g_next = g_prev + alpha_prev * Hp_prev
                 g_next_squared = g_next @ g_next
                 if step == num_steps - 1:
                     if self.sanity_check:
-                        residual = base_gradient + base_hessian @ x_next
+                        residual = gradient + hessian @ x_next
                         residual_norm = residual.norm()
                         if residual_norm > grad_stop_threshold:
                             logging.warning(
