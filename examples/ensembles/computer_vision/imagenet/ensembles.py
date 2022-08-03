@@ -402,7 +402,7 @@ class Ensemble(nn.Module):
         self,
         initial_guess: Optional[torch.Tensor] = None,
         grad_stop_threshold: float = 1e-8,
-        steps_per_batch: int = 3,
+        steps_per_batch: int = 2,
         clip_magnitude: float = 0.1,
     ) -> None:
         with torch.no_grad():
@@ -436,6 +436,7 @@ class Ensemble(nn.Module):
                     self.trained_batches += 1
                     self.update_metrics(self.get_ensembled_preds_from_inputs(inputs), labels)
                     if self.is_chief:
+                        print(self.trained_batches)
                         self.report_train_metrics()
             self.reset_metrics()
             # We use the mean of all weights across the history as the final weights
