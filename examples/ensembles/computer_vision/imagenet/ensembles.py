@@ -1,18 +1,18 @@
 import abc
 import logging
 import random
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Tuple, Union
 
 import determined as det
 import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torchmetrics
+import tqdm
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
-import torchmetrics
-import tqdm
 
 import data
 
@@ -57,7 +57,7 @@ class ClassificationEnsemble(nn.Module):
         self.extra_val_log_metrics = extra_val_log_metrics or {}
         self.sanity_check = sanity_check
         if self.sanity_check:
-            print(f"Running in sanity check mode!")
+            logging.info(f"Running in sanity check mode!")
         self.num_combinations = num_combinations
         self.lr = lr
         self.epochs = epochs
@@ -93,21 +93,22 @@ class ClassificationEnsemble(nn.Module):
         self._strategy = self._ensemble_strategies[self.ensemble_strategy](self)
 
         if self._strategy.requires_training:
-            print(f"Building train_dataset")
+            logging.info(f"Building train_dataset")
             self.train_dataset = data.get_dataset(
                 name=self.dataset_name, split="train", transforms=self.transforms
             )
-            print(f"{len(self.train_dataset)} records in train_dataset")
+            logging.info(f"{len(self.train_dataset)} records in train_dataset")
         else:
-            print(f"Skipping building train_dataset")
+            logging.info(f"Skipping building train_dataset")
             self.train_dataset = None
-        print(f"Building val_dataset")
+        logging.info(f"Building val_dataset")
         self.val_dataset = data.get_dataset(
             name=self.dataset_name, split="val", transforms=self.transforms
         )
-        print(f"{len(self.val_dataset)} records in val_dataset")
+        logging.info(f"{len(self.val_dataset)} records in val_dataset")
         self.train_loader = self.build_train_loader()
         self.val_loader = self.build_val_loader()
+        self.test_loader = None
         self.trained_batches = 0
         self._nll_criterion = nn.NLLLoss()
 
@@ -171,26 +172,19 @@ class ClassificationEnsemble(nn.Module):
         loader = DataLoader(self.val_dataset, batch_size=self.val_batch_size, sampler=sampler)
         return loader
 
-    def get_train_batches(
-        self, desc: str = ""
+    def get_batches(
+        self, split: Literal["train", "val", "test"], desc: str = ""
     ) -> Generator[Tuple[List[torch.Tensor], torch.Tensor, int], None, None]:
-        for batch_idx, batch in enumerate(tqdm.tqdm(self.train_loader, desc=desc)):
-            inputs, labels = batch
-            inputs = [inpt.to(self.device) for inpt in inputs]
-            labels = labels.to(self.device)
-            yield inputs, labels, batch_idx
-
-    def get_val_batches(
-        self, desc: str = ""
-    ) -> Generator[Tuple[List[torch.Tensor], torch.Tensor, int], None, None]:
-        for batch_idx, batch in enumerate(tqdm.tqdm(self.val_loader, desc=desc)):
+        loader_dict = {"train": self.train_loader, "val": self.val_loader, "test": self.test_loader}
+        loader = loader_dict[split]
+        for batch_idx, batch in enumerate(tqdm.tqdm(loader, desc=desc)):
             inputs, labels = batch
             inputs = [inpt.to(self.device) for inpt in inputs]
             labels = labels.to(self.device)
             yield inputs, labels, batch_idx
 
     def build_ensemble(self) -> None:
-        print("Building ensemble...")
+        logging.info("Building ensemble...")
         self._strategy.build_fn()
 
     def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
@@ -212,7 +206,7 @@ class ClassificationEnsemble(nn.Module):
     def validate_ensemble(self) -> None:
         self.models.eval()
         with torch.no_grad():
-            for inputs, labels, batch_idx in self.get_val_batches(desc="Validating"):
+            for inputs, labels, batch_idx in self.get_batches(split="val", desc="Validating"):
                 labels = labels.to(self.device)
                 probs = self.get_ensembled_preds_from_inputs(inputs)
                 self.update_metrics(probs, labels)
@@ -288,7 +282,7 @@ class ClassificationEnsemble(nn.Module):
         with torch.no_grad():
             self._log_likelihoods = torch.zeros(self.num_combinations, device=self.device)
             vbmc_criterion = nn.NLLLoss(reduction="none")
-            for inputs, labels, batch_idx in self.get_val_batches(desc="Training VBMC"):
+            for inputs, labels, batch_idx in self.get_batches(split="train", desc="Training VBMC"):
                 logits = self(inputs)
                 probs = logits.softmax(dim=1)
                 ensemble_probs = probs @ self._other_weights
@@ -325,10 +319,10 @@ class ClassificationEnsemble(nn.Module):
         method."""
         self.betas = torch.ones(self.num_models, device=self.device)
         with torch.no_grad():
-            for epoch_idx in tqdm.tqdm(range(self.epochs), desc="Epoch"):
+            for epoch_idx in range(self.epochs):
                 beta_history = [self.betas.clone()]
-                for inputs, labels, batch_idx in self.get_val_batches(
-                    desc="Calibrating Temperature"
+                for inputs, labels, batch_idx in self.get_batches(
+                    split="train", desc=f"Calibrating Temperature (epoch {epoch_idx})"
                 ):
                     for step in range(steps_per_batch):
                         score = self(inputs)
@@ -404,10 +398,10 @@ class ClassificationEnsemble(nn.Module):
         clip_magnitude: float = 0.1,
     ) -> None:
         with torch.no_grad():
-            for epoch_idx in tqdm.tqdm(range(self.epochs), desc="Epoch"):
+            for epoch_idx in range(self.epochs):
                 ensemble_weight_history = [self.ensemble_weights.clone()]
-                for inputs, labels, batch_idx in self.get_val_batches(
-                    desc="Calibrating Temperature"
+                for inputs, labels, batch_idx in self.get_batches(
+                    split="train", desc=f"Conjugate Gradient Training (epoch {epoch_idx})"
                 ):
                     for step in range(steps_per_batch):
                         gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
