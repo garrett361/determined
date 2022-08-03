@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.DEBUG, format=det.LOG_FORMAT)
 MAX_EXP_ARG = 88.0
 
 
-class Ensemble(nn.Module):
+class ClassificationEnsemble(nn.Module):
     """
     Class for quickly training and validating various ensemble strategies.
     TODO: Currently assuming each model gets a differently transformed input; can optimize when
@@ -432,38 +432,9 @@ class Ensemble(nn.Module):
                     }
                     if self.is_chief:
                         self.report_train_metrics(extra_train_log_metrics=ensemble_weight_dict)
-            self.reset_metrics()
+                    self.reset_metrics()
             # We use the mean of all weights across the history as the final weights
             self.ensemble_weights = torch.stack(ensemble_weight_history, dim=0).mean(dim=0)
-            if self.core_context.preempt.should_preempt():
-                return
-
-    def train_super_learner(self) -> None:
-        """Train super-learner strategies using a standard SGD loop."""
-        # TODO: Optimize by using CrossEntropyLoss when possible.
-        for epoch_idx in tqdm.tqdm(range(self.epochs), desc="Epoch"):
-            for inputs, labels, batch_idx in self.get_val_batches(desc="Training Super Learner"):
-                probs = self.get_ensembled_preds_from_inputs(inputs)
-                self.update_metrics(probs, labels)
-
-                self.optimizer.zero_grad()
-                loss = self._nll_criterion(probs.log(), labels)
-                loss.backward()
-                self.optimizer.step()
-                self.trained_batches += 1
-            # Report training metrics at the end of each epoch
-            if self.is_chief:
-                reported_metrics = self.compute_metrics("train_")
-                reported_metrics["ensemble_weights"] = [w.item() for w in self.ensemble_weights]
-                for key in list(reported_metrics):
-                    if reported_metrics[key] is None:
-                        logging.warning(f"Removing train metric {key} whose value is None.")
-                        reported_metrics.pop(key)
-
-                self.core_context.train.report_training_metrics(
-                    steps_completed=self.trained_batches, metrics=reported_metrics
-                )
-            self.reset_metrics()
             if self.core_context.preempt.should_preempt():
                 return
 
@@ -471,7 +442,7 @@ class Ensemble(nn.Module):
 class Strategy(abc.ABC):
     def __init__(
         self,
-        ensemble: Ensemble,
+        ensemble: ClassificationEnsemble,
     ) -> None:
         self.ensemble = ensemble
 
