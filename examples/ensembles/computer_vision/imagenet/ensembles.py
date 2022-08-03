@@ -190,7 +190,7 @@ class ClassificationEnsemble(nn.Module):
     def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
         """Returns logits for the models, stacked along the last dimension."""
         model_logits = torch.stack(
-            [model(input) for model, input in zip(self.models, inputs)], dim=-1
+            [model(inpt) for model, inpt in zip(self.models, inputs)], dim=-1
         )
         return model_logits
 
