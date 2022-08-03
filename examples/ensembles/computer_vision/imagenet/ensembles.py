@@ -500,8 +500,8 @@ class NaiveStrategy(Strategy):
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = logits.softmax(dim=1)
-        ensemble_prob = model_probs @ self.ensemble.ensemble_weights
-        return ensemble_prob
+        ensemble_probs = model_probs @ self.ensemble.ensemble_weights
+        return ensemble_probs
 
 
 class NaiveTempStrategy(Strategy):
@@ -519,8 +519,8 @@ class NaiveTempStrategy(Strategy):
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = (logits * self.ensemble.betas).softmax(dim=1)
-        ensemble_prob = model_probs @ self.ensemble.ensemble_weights
-        return ensemble_prob
+        ensemble_probs = model_probs @ self.ensemble.ensemble_weights
+        return ensemble_probs
 
 
 class NaiveLogitsStrategy(Strategy):
@@ -535,8 +535,8 @@ class NaiveLogitsStrategy(Strategy):
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = logits @ self.ensemble.ensemble_weights
-        ensemble_prob = ensemble_logits.softmax(dim=1)
-        return ensemble_prob
+        ensemble_probs = ensemble_logits.softmax(dim=1)
+        return ensemble_probs
 
 
 class NaiveLogitsTempStrategy(Strategy):
@@ -552,8 +552,8 @@ class NaiveLogitsTempStrategy(Strategy):
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = (logits * self.ensemble.betas) @ self.ensemble.ensemble_weights
-        ensemble_prob = ensemble_logits.softmax(dim=1)
-        return ensemble_prob
+        ensemble_probs = ensemble_logits.softmax(dim=1)
+        return ensemble_probs
 
 
 class MostConfidentStrategy(Strategy):
@@ -567,10 +567,10 @@ class MostConfidentStrategy(Strategy):
         pass
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        ensembles_probs = logits.softmax(dim=1)
-        max_idxs = ensembles_probs.max(dim=1).values.argmax(dim=-1)
-        ensemble_prob = ensembles_probs[torch.arange(len(max_idxs)), ..., max_idxs]
-        return ensemble_prob
+        model_probs = logits.softmax(dim=1)
+        max_idxs = model_probs.max(dim=1).values.argmax(dim=-1)
+        ensemble_probs = model_probs[torch.arange(len(max_idxs)), ..., max_idxs]
+        return ensemble_probs
 
 
 class MostConfidentTempStrategy(Strategy):
@@ -586,10 +586,10 @@ class MostConfidentTempStrategy(Strategy):
         self.ensemble.calibrate_temperature()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        ensembles_probs = (logits * self.ensemble.betas).softmax(dim=1)
-        max_idxs = ensembles_probs.max(dim=1).values.argmax(dim=-1)
-        ensemble_prob = ensembles_probs[torch.arange(len(max_idxs)), ..., max_idxs]
-        return ensemble_prob
+        model_probs = (logits * self.ensemble.betas).softmax(dim=1)
+        max_idxs = model_probs.max(dim=1).values.argmax(dim=-1)
+        ensemble_probs = model_probs[torch.arange(len(max_idxs)), ..., max_idxs]
+        return ensemble_probs
 
 
 class MajorityVoteStrategy(Strategy):
@@ -632,8 +632,8 @@ class VBMCStrategy(Strategy):
             prob_sum_check = self.ensemble.ensemble_weights.sum(dim=-1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
         model_probs = logits.softmax(dim=1)
-        ensemble_prob = model_probs @ self.ensemble.ensemble_weights
-        return ensemble_prob
+        ensemble_probs = model_probs @ self.ensemble.ensemble_weights
+        return ensemble_probs
 
 
 class VBMCTempStrategy(Strategy):
@@ -659,8 +659,8 @@ class VBMCTempStrategy(Strategy):
             prob_sum_check = self.ensemble.ensemble_weights.sum(dim=-1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
         model_probs = (logits * self.ensemble.betas).softmax(dim=1)
-        ensemble_prob = model_probs @ self.ensemble.ensemble_weights
-        return ensemble_prob
+        ensemble_probs = model_probs @ self.ensemble.ensemble_weights
+        return ensemble_probs
 
 
 class SuperLearnerProbsStrategy(Strategy):
@@ -673,31 +673,66 @@ class SuperLearnerProbsStrategy(Strategy):
     requires_SGD = False
 
     def build_fn(self) -> None:
-        self.ensemble.train_super_learner()
+        self._initialize_uniform_ensemble_weights()
+        self.ensemble.train_ensemble_weights_with_conjugate_gradient()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = logits.softmax(dim=1)
-        ensemble_prob = model_probs @ self.ensemble.ensemble_weights.softmax(dim=-1)
-        return ensemble_prob
+        ensemble_probs = model_probs @ self.ensemble.ensemble_weights.softmax(dim=-1)
+        return ensemble_probs
+
+    def get_gradient_and_hessian(
+        self, inputs: torch.Tensor, labels: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        model_probs = self.ensemble(inputs).softmax(dim=-1)
+        model_probs_star = model_probs[torch.arange(len(labels)), labels]
+        ensemble_weight_probs = self.ensemble.ensemble_weights.softmax(dim=-1)
+        ensemble_probs = model_probs @ ensemble_weight_probs
+        ensemble_probs_star = ensemble_probs[torch.arange(len(labels)), labels]
+
+        model_div_ensemble_probs_data_mean = (
+            model_probs_star / ensemble_probs_star[..., None]
+        ).mean(dim=0)
+
+        gradient = ensemble_weight_probs * (1 - model_div_ensemble_probs_data_mean)
+
+        hessian_diagonal_term = (
+            torch.eye(len(ensemble_weight_probs), device=self.ensemble.device)
+            * ensemble_weight_probs
+            * (1 - model_div_ensemble_probs_data_mean)
+        )
+        hessian_remainder_data_mean_term = (
+            model_probs_star[:, None]
+            * model_probs_star[..., None]
+            / ensemble_probs_star[..., None, None] ** 2
+        ).mean(dim=0)
+        hessian_remainder = (
+            ensemble_weight_probs[None, ...]
+            * ensemble_weight_probs[..., None]
+            * hessian_remainder_data_mean_term
+        )
+        hessian = hessian_diagonal_term + hessian_remainder
+
+        if self.ensemble.sanity_check:
+            torch.testing.assert_close(
+                gradient.sum(), torch.tensor(0.0, device=self.ensemble.device)
+            )
+            torch.testing.assert_close(
+                hessian.sum(), torch.tensor(1.0, device=self.ensemble.device)
+            )
+
+        return gradient, hessian
 
 
-class SuperLearnerProbsTempStrategy(Strategy):
+class SuperLearnerProbsTempStrategy(SuperLearnerProbsStrategy):
     """Minimize the KL divergence for a weighted sum of temperature-calibrated model probabilities,
     with the weights adding to unity.
     """
 
-    generates_probabilities = True
-    requires_training = True
-    requires_SGD = False
-
     def build_fn(self) -> None:
+        self._initialize_uniform_ensemble_weights()
         self.ensemble.calibrate_temperature()
-        self.ensemble.train_super_learner()
-
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        model_probs = logits.softmax(dim=1)
-        ensemble_prob = model_probs @ self.ensemble.ensemble_weights.softmax(dim=-1)
-        return ensemble_prob
+        self.ensemble.train_ensemble_weights_with_conjugate_gradient()
 
 
 class SuperLearnerLogitsStrategy(Strategy):
@@ -715,15 +750,15 @@ class SuperLearnerLogitsStrategy(Strategy):
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = logits @ self.ensemble.ensemble_weights
-        ensemble_prob = ensemble_logits.softmax(dim=1)
-        return ensemble_prob
+        ensemble_probs = ensemble_logits.softmax(dim=1)
+        return ensemble_probs
 
     def get_gradient_and_hessian(
         self, inputs: torch.Tensor, labels: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         logits = self.ensemble(inputs)
         logits_star = logits[torch.arange(len(labels)), labels]
-        ensemble_probs = self.pred_fn(logits)
+        ensemble_probs = (logits @ self.ensemble.ensemble_weights).softmax(dim=1)
 
         logits_star_data_mean = logits_star.mean(dim=0)
         logits_class_mean = (logits * ensemble_probs[..., None]).sum(dim=1)
