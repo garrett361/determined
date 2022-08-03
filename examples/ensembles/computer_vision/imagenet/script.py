@@ -22,7 +22,7 @@ def suppress_stdout():
             sys.stdout = old_stdout
 
 
-parser = argparse.ArgumentParser(description="ImageNet Ensemble Loops")
+parser = argparse.ArgumentParser(description="ImageNet ClassificationEnsemble Loops")
 parser.add_argument("-m", "--master", type=str, default="localhost:8080")
 parser.add_argument("-u", "--user", type=str, default="determined")
 parser.add_argument("-p", "--password", type=str, default="")
