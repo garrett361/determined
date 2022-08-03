@@ -168,9 +168,7 @@ class Ensemble(nn.Module):
             sampler = DistributedSampler(self.val_dataset, shuffle=False)
         else:
             sampler = SequentialSampler(self.val_dataset)
-        loader = DataLoader(
-            self.val_dataset, batch_size=self.val_batch_size, sampler=sampler, drop_last=True
-        )
+        loader = DataLoader(self.val_dataset, batch_size=self.val_batch_size, sampler=sampler)
         return loader
 
     def get_train_batches(
@@ -411,13 +409,6 @@ class Ensemble(nn.Module):
                 for inputs, labels, batch_idx in self.get_val_batches(
                     desc="Calibrating Temperature"
                 ):
-                    ensemble_weight_dict = {
-                        f"ensemble_weight_{idx}": w.item()
-                        for idx, w in enumerate(self.ensemble_weights)
-                    }
-                    self.core_context.train.report_training_metrics(
-                        steps_completed=self.trained_batches, metrics=ensemble_weight_dict
-                    )
                     for step in range(steps_per_batch):
                         gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
                         delta_ensemble_weights = self._conjugate_gradient(
@@ -435,9 +426,12 @@ class Ensemble(nn.Module):
                         ensemble_weight_history.append(self.ensemble_weights.clone())
                     self.trained_batches += 1
                     self.update_metrics(self.get_ensembled_preds_from_inputs(inputs), labels)
+                    ensemble_weight_dict = {
+                        f"ensemble_weight_{idx}": w.item()
+                        for idx, w in enumerate(self.ensemble_weights)
+                    }
                     if self.is_chief:
-                        print(self.trained_batches)
-                        self.report_train_metrics()
+                        self.report_train_metrics(extra_train_log_metrics=ensemble_weight_dict)
             self.reset_metrics()
             # We use the mean of all weights across the history as the final weights
             self.ensemble_weights = torch.stack(ensemble_weight_history, dim=0).mean(dim=0)
