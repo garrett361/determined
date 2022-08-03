@@ -4,16 +4,14 @@ least 75% accuracy on the same task.
 """
 
 import itertools
-import logging
 import math
 import random
 from typing import Literal, List
 
+import determined as det
 import pandas as pd
 import timm
 import torch.nn as nn
-
-logging.basicConfig(level=logging.DEBUG, format=det.LOG_FORMAT)
 
 SMALL_TIMM_MODELS_DF = pd.read_feather("small_timm_models.feather").set_index("model")
 TOP_TIMM_MODELS_DF = pd.read_feather("top_timm_models.feather").set_index("model")
@@ -76,7 +74,7 @@ def build_timm_models(model_names: List[str], checkpoint_path_prefix: str) -> Li
     models = []
     for name in model_names:
         model_data = ALL_MODELS_DF.loc[name]
-        logging.info(f"Building model {name}...")
+        print(f"Building model {name}...")
         checkpoint_path = checkpoint_path_prefix + model_data.state_dict_path
         model = timm.create_model(name, checkpoint_path=checkpoint_path)
         models.append(model)
