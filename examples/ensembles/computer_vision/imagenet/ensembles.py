@@ -1,8 +1,9 @@
 import abc
+import logging
 import random
-from typing import Any, Callable, Dict, List, Optional, Union
-import warnings
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, Union
 
+import determined as det
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -14,6 +15,8 @@ import torchmetrics
 import tqdm
 
 import data
+
+logging.basicConfig(level=logging.DEBUG, format=det.LOG_FORMAT)
 
 MAX_EXP_ARG = 88.0
 
@@ -103,9 +106,9 @@ class Ensemble(nn.Module):
             name=self.dataset_name, split="val", transforms=self.transforms
         )
         print(f"{len(self.val_dataset)} records in val_dataset")
-        self.trained_batches = 0
         self.train_loader = self.build_train_loader()
         self.val_loader = self.build_val_loader()
+        self.trained_batches = 0
         self._nll_criterion = nn.NLLLoss()
 
         # There can be multiple notions of weights for different ensemble strategies.  `weights`
@@ -170,6 +173,24 @@ class Ensemble(nn.Module):
         )
         return loader
 
+    def get_train_batches(
+        self, desc: str = ""
+    ) -> Generator[Tuple[List[torch.Tensor], torch.Tensor, int], None, None]:
+        for batch_idx, batch in enumerate(tqdm.tqdm(self.train_loader, desc=desc)):
+            inputs, labels = batch
+            inputs = [inpt.to(self.device) for inpt in inputs]
+            labels = labels.to(self.device)
+            yield inputs, labels, batch_idx
+
+    def get_val_batches(
+        self, desc: str = ""
+    ) -> Generator[Tuple[List[torch.Tensor], torch.Tensor, int], None, None]:
+        for batch_idx, batch in enumerate(tqdm.tqdm(self.val_loader, desc=desc)):
+            inputs, labels = batch
+            inputs = [inpt.to(self.device) for inpt in inputs]
+            labels = labels.to(self.device)
+            yield inputs, labels, batch_idx
+
     def build_ensemble(self) -> None:
         print("Building ensemble...")
         self._strategy.build_fn()
@@ -193,9 +214,7 @@ class Ensemble(nn.Module):
     def validate_ensemble(self) -> None:
         self.models.eval()
         with torch.no_grad():
-            for batch_idx, batch in enumerate(tqdm.tqdm(self.val_loader, desc="Validating")):
-                inputs, labels = batch
-                inputs = [inpt.to(self.device) for inpt in inputs]
+            for inputs, labels, batch_idx in self.get_val_batches(desc="Validating"):
                 labels = labels.to(self.device)
                 probs = self.get_ensembled_preds_from_inputs(inputs)
                 self.update_metrics(probs, labels)
@@ -215,7 +234,7 @@ class Ensemble(nn.Module):
                     reported_metrics["beta"] = [b.item() for b in self.beta]
                 for key in list(reported_metrics):
                     if reported_metrics[key] is None:
-                        warnings.warn(f"Removing val metric {key} whose value is None.")
+                        logging.warning(f"Removing val metric {key} whose value is None.")
                         reported_metrics.pop(key)
 
                 self.core_context.train.report_validation_metrics(
@@ -253,9 +272,7 @@ class Ensemble(nn.Module):
         with torch.no_grad():
             self._log_likelihoods = torch.zeros(self.num_combinations, device=self.device)
             vbmc_criterion = nn.NLLLoss(reduction="none")
-            for batch_idx, batch in enumerate(tqdm.tqdm(self.train_loader, desc="Training VBMC")):
-                inputs, labels = batch
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
+            for inputs, labels, batch_idx in self.get_val_batches(desc="Training VBMC"):
                 logits = self(inputs)
                 probs = logits.softmax(dim=1)
                 ensemble_probs = probs @ self._other_weights
@@ -287,29 +304,26 @@ class Ensemble(nn.Module):
         if self.core_context.preempt.should_preempt():
             return
 
-    def calibrate_temperature(self) -> None:
+    def calibrate_temperature(self, clip_magnitude: float = 0.1, steps_per_batch: int = 3) -> None:
         """Calibrates temperatures for all base models in the ensemble in parallel using Newton's
         method."""
         self.beta = torch.ones(self.num_models, device=self.device)
         with torch.no_grad():
             beta_history = [self.beta.clone()]
-            for batch_idx, batch in enumerate(
-                tqdm.tqdm(self.train_loader, desc="Calibrating temperature")
-            ):
-                inputs, labels = batch
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
-                score = self(inputs)
-                probs = (self.beta * score).softmax(dim=1)
-                mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
-                score_label_mean = (probs * score).sum(dim=1)
-                score2_label_mean = (probs * score ** 2).sum(dim=1)
-                dloss_dbeta = score_label_mean.mean(dim=0) - mean_true_score
-                dloss_dbeta2 = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
-                delta_beta = -1 * dloss_dbeta / dloss_dbeta2
-                # Clamp to help prevent runaways due to noise
-                delta_beta = delta_beta.clamp(min=-1, max=1)
-                self.beta += delta_beta
-                beta_history.append(self.beta.clone())
+            for inputs, labels, batch_idx in self.get_val_batches(desc="Calibrating Temperature"):
+                for step in range(steps_per_batch):
+                    score = self(inputs)
+                    probs = (self.beta * score).softmax(dim=1)
+                    mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
+                    score_label_mean = (probs * score).sum(dim=1)
+                    score2_label_mean = (probs * score ** 2).sum(dim=1)
+                    base_gradient = score_label_mean.mean(dim=0) - mean_true_score
+                    base_hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
+                    delta_beta = self._conjugate_gradient(base_gradient, base_hessian)
+                    # Clamp to help prevent runaways due to noise
+                    delta_beta = delta_beta.clamp(min=-clip_magnitude, max=clip_magnitude)
+                    self.beta += delta_beta
+                    beta_history.append(self.beta.clone())
                 self.trained_batches += 1
             self.beta = torch.stack(beta_history, dim=0).mean(dim=0)
         reported_metrics = {"betas": [b.item() for b in self.beta]}
@@ -319,15 +333,53 @@ class Ensemble(nn.Module):
         if self.core_context.preempt.should_preempt():
             return
 
+    def _conjugate_gradient(
+        self,
+        base_gradient: torch.Tensor,
+        base_hessian: torch.Tensor,
+        initial_guess: Optional[torch.Tensor] = None,
+        grad_stop_threshold: float = 1e-8,
+    ) -> torch.Tensor:
+        with torch.no_grad():
+            if self.sanity_check:
+                assert len(base_gradient.shape) == 1
+                for dim_size in base_hessian.shape:
+                    assert base_gradient.shape[0] == dim_size
+            num_steps = base_gradient.shape[0]
+            x_prev = initial_guess if initial_guess is not None else torch.zeros_like(base_gradient)
+            g_prev = base_gradient + base_hessian @ x_prev
+            p_prev = g_prev
+            g_prev_squared = g_prev @ g_prev
+
+            for step in range(num_steps):
+                Hp_prev = base_hessian @ p_prev
+                alpha_prev = -g_prev_squared / (p_prev @ Hp_prev)
+                x_next = x_prev + alpha_prev * p_prev
+                g_next = g_prev + alpha_prev * Hp_prev
+                g_next_squared = g_next @ g_next
+                if step == num_steps - 1:
+                    if self.sanity_check:
+                        residual = base_gradient + base_hessian @ x_next
+                        residual_norm = residual.norm()
+                        if residual_norm > grad_stop_threshold:
+                            logging.warning(
+                                f"Conjugate gradient residual larger "
+                                f"than {grad_stop_threshold}: {residual_norm.item()}:"
+                            )
+                    return x_next
+                if g_next_squared.sqrt() < grad_stop_threshold:
+                    return x_next
+                beta_prev = g_next_squared / g_prev_squared
+                p_prev = g_next + beta_prev * p_prev
+                g_prev = g_next
+                g_prev_squared = g_next_squared
+                x_prev = x_next
+
     def train_super_learner(self) -> None:
         """Train super-learner strategies using a standard SGD loop."""
         # TODO: Optimize by using CrossEntropyLoss when possible.
         for epoch_idx in tqdm.tqdm(range(self.epochs), desc="Epoch"):
-            for batch_idx, batch in enumerate(
-                tqdm.tqdm(self.train_loader, desc="Training Super Learner")
-            ):
-                inputs, labels = batch
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
+            for inputs, labels, batch_idx in self.get_val_batches(desc="Training Super Learner"):
                 probs = self.get_ensembled_preds_from_inputs(inputs)
                 self.update_metrics(probs, labels)
 
@@ -342,7 +394,7 @@ class Ensemble(nn.Module):
                 reported_metrics["ensemble_weights"] = [w.item() for w in self.ensemble_weights]
                 for key in list(reported_metrics):
                     if reported_metrics[key] is None:
-                        warnings.warn(f"Removing train metric {key} whose value is None.")
+                        logging.warning(f"Removing train metric {key} whose value is None.")
                         reported_metrics.pop(key)
 
                 self.core_context.train.report_training_metrics(
