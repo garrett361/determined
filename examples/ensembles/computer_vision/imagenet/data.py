@@ -207,7 +207,7 @@ def build_timm_transforms(models: List[nn.Module]) -> List[Callable]:
     """Returns a list of timm transforms from a list of timm models."""
     transforms = []
     for model in models:
-        transform_kwargs = timm.data.resolve_data_config(model)
+        transform_kwargs = timm.data.resolve_data_config({}, model=model)
         transform = timm.data.create_transform(is_training=False, **transform_kwargs)
         transforms.append(transform)
     return transforms
