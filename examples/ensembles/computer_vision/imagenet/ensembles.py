@@ -127,7 +127,7 @@ class Ensemble(nn.Module):
         # Others need log-likelihoods at intermediate steps.
         self._log_likelihoods = None
         # Sometimes we calibrate using an inverse temperature.
-        self.beta = None
+        self.betas = None
 
         if self._strategy.generates_probabilities:
             self.accuracy_metrics = {
@@ -230,8 +230,8 @@ class Ensemble(nn.Module):
                 reported_metrics = {**self.extra_val_log_metrics, **computed_metrics}
                 if self.ensemble_weights is not None:
                     reported_metrics["ensemble_weights"] = [w.item() for w in self.ensemble_weights]
-                if self.beta is not None:
-                    reported_metrics["beta"] = [b.item() for b in self.beta]
+                if self.betas is not None:
+                    reported_metrics["beta"] = [b.item() for b in self.betas]
                 for key in list(reported_metrics):
                     if reported_metrics[key] is None:
                         logging.warning(f"Removing val metric {key} whose value is None.")
@@ -307,26 +307,31 @@ class Ensemble(nn.Module):
     def calibrate_temperature(self, clip_magnitude: float = 0.1, steps_per_batch: int = 3) -> None:
         """Calibrates temperatures for all base models in the ensemble in parallel using Newton's
         method."""
-        self.beta = torch.ones(self.num_models, device=self.device)
+        self.betas = torch.ones(self.num_models, device=self.device)
         with torch.no_grad():
-            beta_history = [self.beta.clone()]
+            beta_history = [self.betas.clone()]
             for inputs, labels, batch_idx in self.get_val_batches(desc="Calibrating Temperature"):
+                beta_dict = {f"beta_{idx}": [b.item() for b in betas] for idx, betas in self.betas}
+                self.core_context.train.report_training_metrics(
+                    steps_completed=self.trained_batches, metrics=beta_dict
+                )
                 for step in range(steps_per_batch):
                     score = self(inputs)
-                    probs = (self.beta * score).softmax(dim=1)
+                    probs = (self.betas * score).softmax(dim=1)
                     mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
                     score_label_mean = (probs * score).sum(dim=1)
                     score2_label_mean = (probs * score ** 2).sum(dim=1)
                     gradient = score_label_mean.mean(dim=0) - mean_true_score
                     hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
-                    delta_beta = delta_beta = -1 * gradient / hessian
+                    delta_beta = -1 * gradient / hessian
                     # Clamp to help prevent runaways due to noise
                     delta_beta = delta_beta.clamp(min=-clip_magnitude, max=clip_magnitude)
-                    self.beta += delta_beta
-                    beta_history.append(self.beta.clone())
+                    self.betas += delta_beta
+                    beta_history.append(self.betas.clone())
                 self.trained_batches += 1
-            self.beta = torch.stack(beta_history, dim=0).mean(dim=0)
-        reported_metrics = {"betas": [b.item() for b in self.beta]}
+            # We use the mean of all betas across the history as the final beta value
+            self.betas = torch.stack(beta_history, dim=0).mean(dim=0)
+        reported_metrics = {"betas": [b.item() for b in self.betas]}
         self.core_context.train.report_training_metrics(
             steps_completed=self.trained_batches, metrics=reported_metrics
         )
@@ -634,7 +639,7 @@ class SuperLearnerProbsStrategy(Strategy):
 
     generates_probabilities = True
     requires_training = True
-    requires_SGD = True
+    requires_SGD = False
 
     def build_fn(self) -> None:
         self.ensemble.train_super_learner()
@@ -652,7 +657,7 @@ class SuperLearnerProbsTempStrategy(Strategy):
 
     generates_probabilities = True
     requires_training = True
-    requires_SGD = True
+    requires_SGD = False
 
     def build_fn(self) -> None:
         self.ensemble.calibrate_temperature()
@@ -671,7 +676,7 @@ class SuperLearnerLogitsStrategy(Strategy):
 
     generates_probabilities = True
     requires_training = True
-    requires_SGD = True
+    requires_SGD = False
 
     def build_fn(self) -> None:
         self.ensemble.train_super_learner()
