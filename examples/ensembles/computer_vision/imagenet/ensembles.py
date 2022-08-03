@@ -311,7 +311,7 @@ class Ensemble(nn.Module):
         with torch.no_grad():
             beta_history = [self.betas.clone()]
             for inputs, labels, batch_idx in self.get_val_batches(desc="Calibrating Temperature"):
-                beta_dict = {f"beta_{idx}": [b.item() for b in betas] for idx, betas in self.betas}
+                beta_dict = {f"beta_{idx}": b.item() for idx, b in self.betas}
                 self.core_context.train.report_training_metrics(
                     steps_completed=self.trained_batches, metrics=beta_dict
                 )
