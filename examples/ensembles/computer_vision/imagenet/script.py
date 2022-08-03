@@ -30,6 +30,7 @@ parser.add_argument("-d", "--dataset_name", type=str, default="imagenette2-160")
 parser.add_argument("-es", "--ensemble_strategy", nargs="+", type=str, default=[])
 parser.add_argument("-mc", "--model_criteria", type=str, default="")
 parser.add_argument("-en", "--experiment_name", type=str, default="")
+parser.add_argument("-pn", "--project_name", type=str, default="")
 parser.add_argument("-w", "--workspace", type=str, default="Ensembling")
 parser.add_argument("-mn", "--model_names", nargs="+", type=str, default=[])
 # Hack: num_base_models will be read as a string, then converted to a list of integers by splitting
@@ -65,6 +66,8 @@ if args.model_names:
 generate_names = args.experiment_name == ""
 # Append '_test' to the given workspace name, if --test is set.
 workspace_name = args.workspace + ("_test" if args.test else "")
+# If a non-blank project_name is provided, use that project; otherwise use the dataset_name
+project_name = args.project_name or args.dataset_name
 
 client.login(master=args.master, user=args.user, password=args.password)
 
@@ -109,7 +112,7 @@ for strategy in args.ensemble_strategy:
             "entrypoint": "python -m determined.launch.torch_distributed -- python -m main",
             "name": args.experiment_name,
             "workspace": workspace_name,
-            "project": args.dataset_name,
+            "project": project_name,
             "max_restarts": 0,
             "reproducibility": {"experiment_seed": 42},
             "resources": {"slots_per_trial": 1},
