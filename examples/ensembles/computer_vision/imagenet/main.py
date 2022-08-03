@@ -14,7 +14,7 @@ def main(core_context, hparams: Dict[str, Any]) -> None:
         model_names=hparams.model_names, checkpoint_path_prefix=hparams.checkpoint_path_prefix
     )
     transforms = data.build_timm_transforms(models=models)
-    trainer = ensembles.Ensemble(
+    trainer = ensembles.ClassificationEnsemble(
         core_context,
         models=models,
         transforms=transforms,
