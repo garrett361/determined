@@ -219,27 +219,7 @@ class Ensemble(nn.Module):
                 probs = self.get_ensembled_preds_from_inputs(inputs)
                 self.update_metrics(probs, labels)
             if self.is_chief:
-                computed_metrics = self.compute_metrics("val_")
-                conflicted_keys = set(self.extra_val_log_metrics) & set(computed_metrics)
-                if conflicted_keys:
-                    raise ValueError(
-                        f"extra_val_log_metrics/val_metrics conflicting keys: {conflicted_keys}"
-                    )
-                # Join with extra_val_log_metrics and remove any None-valued metrics with a
-                # warning (these would throw errors). Also include the weights and _beta.
-                reported_metrics = {**self.extra_val_log_metrics, **computed_metrics}
-                if self.ensemble_weights is not None:
-                    reported_metrics["ensemble_weights"] = [w.item() for w in self.ensemble_weights]
-                if self.betas is not None:
-                    reported_metrics["beta"] = [b.item() for b in self.betas]
-                for key in list(reported_metrics):
-                    if reported_metrics[key] is None:
-                        logging.warning(f"Removing val metric {key} whose value is None.")
-                        reported_metrics.pop(key)
-
-                self.core_context.train.report_validation_metrics(
-                    steps_completed=self.trained_batches, metrics=reported_metrics
-                )
+                self.report_val_metrics()
             self.reset_metrics()
         if self.core_context.preempt.should_preempt():
             return
@@ -252,7 +232,7 @@ class Ensemble(nn.Module):
             loss = self._nll_criterion(probs.log(), labels)
             self.loss_metric(loss)
 
-    def compute_metrics(self, prefix: str = ""):
+    def compute_metrics(self, prefix: str = "") -> Dict[str, Any]:
         computed_metrics = {
             prefix + name: metric.compute().item() for name, metric in self.accuracy_metrics.items()
         }
@@ -260,11 +240,49 @@ class Ensemble(nn.Module):
             computed_metrics[prefix + "loss"] = self.loss_metric.compute().item()
         return computed_metrics
 
-    def reset_metrics(self):
+    def reset_metrics(self) -> None:
         for met in self.accuracy_metrics.values():
             met.reset()
         if self.loss_metric is not None:
             self.loss_metric.reset()
+
+    def report_val_metrics(self) -> None:
+        computed_metrics = self.compute_metrics("val_")
+        conflicted_keys = set(self.extra_val_log_metrics) & set(computed_metrics)
+        if conflicted_keys:
+            raise ValueError(
+                f"extra_val_log_metrics/val_metrics conflicting keys: {conflicted_keys}"
+            )
+        # Join with extra_val_log_metrics and remove any None-valued metrics with a
+        # warning (these would throw errors). Also include the weights and betas.
+        reported_metrics = {**self.extra_val_log_metrics, **computed_metrics}
+        if self.ensemble_weights is not None:
+            reported_metrics["ensemble_weights"] = [w.item() for w in self.ensemble_weights]
+        if self.betas is not None:
+            reported_metrics["betas"] = [b.item() for b in self.betas]
+        for key in list(reported_metrics):
+            if reported_metrics[key] is None:
+                logging.warning(f"Removing val metric {key} whose value is None.")
+                reported_metrics.pop(key)
+
+        self.core_context.train.report_validation_metrics(
+            steps_completed=self.trained_batches, metrics=reported_metrics
+        )
+
+    def report_train_metrics(
+        self, extra_train_log_metrics: Optional[Dict[str, Any]] = None
+    ) -> None:
+        extra_train_log_metrics = extra_train_log_metrics or {}
+        computed_metrics = self.compute_metrics("train_")
+        conflicted_keys = set(extra_train_log_metrics) & set(computed_metrics)
+        if conflicted_keys:
+            raise ValueError(
+                f"extra_train_log_metrics/train_metrics conflicting keys: {conflicted_keys}"
+            )
+        reported_metrics = {**extra_train_log_metrics, **computed_metrics}
+        self.core_context.train.report_training_metrics(
+            steps_completed=self.trained_batches, metrics=reported_metrics
+        )
 
     def train_vbmc(self) -> None:
         """Computes the posterior and resulting effective weights for the num_combination linear
@@ -309,34 +327,34 @@ class Ensemble(nn.Module):
         method."""
         self.betas = torch.ones(self.num_models, device=self.device)
         with torch.no_grad():
-            beta_history = [self.betas.clone()]
-            for inputs, labels, batch_idx in self.get_val_batches(desc="Calibrating Temperature"):
-                beta_dict = {f"beta_{idx}": b.item() for idx, b in self.betas}
-                self.core_context.train.report_training_metrics(
-                    steps_completed=self.trained_batches, metrics=beta_dict
-                )
-                for step in range(steps_per_batch):
-                    score = self(inputs)
-                    probs = (self.betas * score).softmax(dim=1)
-                    mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
-                    score_label_mean = (probs * score).sum(dim=1)
-                    score2_label_mean = (probs * score ** 2).sum(dim=1)
-                    gradient = score_label_mean.mean(dim=0) - mean_true_score
-                    hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
-                    delta_beta = -1 * gradient / hessian
-                    # Clamp to help prevent runaways due to noise
-                    delta_beta = delta_beta.clamp(min=-clip_magnitude, max=clip_magnitude)
-                    self.betas += delta_beta
-                    beta_history.append(self.betas.clone())
-                self.trained_batches += 1
+            for epoch_idx in tqdm.tqdm(range(self.epochs), desc="Epoch"):
+                beta_history = [self.betas.clone()]
+                for inputs, labels, batch_idx in self.get_val_batches(
+                    desc="Calibrating Temperature"
+                ):
+                    for step in range(steps_per_batch):
+                        score = self(inputs)
+                        probs = (self.betas * score).softmax(dim=1)
+                        mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
+                        score_label_mean = (probs * score).sum(dim=1)
+                        score2_label_mean = (probs * score ** 2).sum(dim=1)
+                        gradient = score_label_mean.mean(dim=0) - mean_true_score
+                        hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
+                        delta_beta = -1 * gradient / hessian
+                        # Clamp to help prevent runaways due to noise
+                        delta_beta = delta_beta.clamp(min=-clip_magnitude, max=clip_magnitude)
+                        self.betas += delta_beta
+                        beta_history.append(self.betas.clone())
+                    beta_dict = {f"beta_{idx}": b.item() for idx, b in enumerate(self.betas)}
+                    self.trained_batches += 1
+                    if self.is_chief:
+                        self.core_context.train.report_training_metrics(
+                            steps_completed=self.trained_batches, metrics=beta_dict
+                        )
             # We use the mean of all betas across the history as the final beta value
             self.betas = torch.stack(beta_history, dim=0).mean(dim=0)
-        reported_metrics = {"betas": [b.item() for b in self.betas]}
-        self.core_context.train.report_training_metrics(
-            steps_completed=self.trained_batches, metrics=reported_metrics
-        )
-        if self.core_context.preempt.should_preempt():
-            return
+            if self.core_context.preempt.should_preempt():
+                return
 
     def _conjugate_gradient(
         self,
@@ -379,6 +397,51 @@ class Ensemble(nn.Module):
                 g_prev = g_next
                 g_prev_squared = g_next_squared
                 x_prev = x_next
+
+    def train_ensemble_weights_with_conjugate_gradient(
+        self,
+        initial_guess: Optional[torch.Tensor] = None,
+        grad_stop_threshold: float = 1e-8,
+        steps_per_batch: int = 3,
+        clip_magnitude: float = 0.1,
+    ) -> None:
+        with torch.no_grad():
+            for epoch_idx in tqdm.tqdm(range(self.epochs), desc="Epoch"):
+                ensemble_weight_history = [self.ensemble_weights.clone()]
+                for inputs, labels, batch_idx in self.get_val_batches(
+                    desc="Calibrating Temperature"
+                ):
+                    ensemble_weight_dict = {
+                        f"ensemble_weight_{idx}": w.item()
+                        for idx, w in enumerate(self.ensemble_weights)
+                    }
+                    self.core_context.train.report_training_metrics(
+                        steps_completed=self.trained_batches, metrics=ensemble_weight_dict
+                    )
+                    for step in range(steps_per_batch):
+                        gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
+                        delta_ensemble_weights = self._conjugate_gradient(
+                            gradient=gradient,
+                            hessian=hessian,
+                            initial_guess=initial_guess,
+                            grad_stop_threshold=grad_stop_threshold,
+                        )
+                        # Clamp to help prevent runaways due to noise or a poor starting point.
+                        delta_ensemble_weights = delta_ensemble_weights.clamp(
+                            min=-clip_magnitude,
+                            max=clip_magnitude,
+                        )
+                        self.ensemble_weights += delta_ensemble_weights
+                        ensemble_weight_history.append(self.ensemble_weights.clone())
+                    self.trained_batches += 1
+                    self.update_metrics(self.get_ensembled_preds_from_inputs(inputs), labels)
+                    if self.is_chief:
+                        self.report_train_metrics()
+            self.reset_metrics()
+            # We use the mean of all weights across the history as the final weights
+            self.ensemble_weights = torch.stack(ensemble_weight_history, dim=0).mean(dim=0)
+            if self.core_context.preempt.should_preempt():
+                return
 
     def train_super_learner(self) -> None:
         """Train super-learner strategies using a standard SGD loop."""
@@ -444,6 +507,20 @@ class Strategy(abc.ABC):
         single prediction."""
         pass
 
+    def get_gradient_and_hessian(
+        self, inputs: torch.Tensor, labels: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Returns the relevant gradient and hessian. For use, e.g., with the conjugate gradient
+        method.
+        """
+        pass
+
+    def _initialize_uniform_ensemble_weights(self) -> None:
+        self.ensemble.ensemble_weights = (
+            torch.ones(self.ensemble.num_models, device=self.ensemble.device)
+            / self.ensemble.num_models
+        )
+
 
 class NaiveStrategy(Strategy):
     """Average the probabilities of all models with equal weights."""
@@ -453,10 +530,7 @@ class NaiveStrategy(Strategy):
     requires_SGD = False
 
     def build_fn(self) -> None:
-        self.ensemble.ensemble_weights = (
-            torch.ones(self.ensemble.num_models, device=self.ensemble.device)
-            / self.ensemble.num_models
-        )
+        self._initialize_uniform_ensemble_weights()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = logits.softmax(dim=1)
@@ -474,14 +548,11 @@ class NaiveTempStrategy(Strategy):
     requires_SGD = False
 
     def build_fn(self) -> None:
-        self.ensemble.ensemble_weights = (
-            torch.ones(self.ensemble.num_models, device=self.ensemble.device)
-            / self.ensemble.num_models
-        )
+        self._initialize_uniform_ensemble_weights()
         self.ensemble.calibrate_temperature()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        model_probs = (logits * self.ensemble.beta).softmax(dim=1)
+        model_probs = (logits * self.ensemble.betas).softmax(dim=1)
         ensemble_prob = model_probs @ self.ensemble.ensemble_weights
         return ensemble_prob
 
@@ -494,10 +565,7 @@ class NaiveLogitsStrategy(Strategy):
     requires_SGD = False
 
     def build_fn(self) -> None:
-        self.ensemble.ensemble_weights = (
-            torch.ones(self.ensemble.num_models, device=self.ensemble.device)
-            / self.ensemble.num_models
-        )
+        self._initialize_uniform_ensemble_weights()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = logits @ self.ensemble.ensemble_weights
@@ -513,14 +581,11 @@ class NaiveLogitsTempStrategy(Strategy):
     requires_SGD = False
 
     def build_fn(self) -> None:
-        self.ensemble.ensemble_weights = (
-            torch.ones(self.ensemble.num_models, device=self.ensemble.device)
-            / self.ensemble.num_models
-        )
+        self._initialize_uniform_ensemble_weights()
         self.ensemble.calibrate_temperature()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        ensemble_logits = (logits * self.ensemble.beta) @ self.ensemble.ensemble_weights
+        ensemble_logits = (logits * self.ensemble.betas) @ self.ensemble.ensemble_weights
         ensemble_prob = ensemble_logits.softmax(dim=1)
         return ensemble_prob
 
@@ -555,7 +620,7 @@ class MostConfidentTempStrategy(Strategy):
         self.ensemble.calibrate_temperature()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
-        ensembles_probs = (logits * self.ensemble.beta).softmax(dim=1)
+        ensembles_probs = (logits * self.ensemble.betas).softmax(dim=1)
         max_idxs = ensembles_probs.max(dim=1).values.argmax(dim=-1)
         ensemble_prob = ensembles_probs[torch.arange(len(max_idxs)), ..., max_idxs]
         return ensemble_prob
@@ -627,7 +692,7 @@ class VBMCTempStrategy(Strategy):
         if self.ensemble.sanity_check:
             prob_sum_check = self.ensemble.ensemble_weights.sum(dim=-1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
-        model_probs = (logits * self.ensemble.beta).softmax(dim=1)
+        model_probs = (logits * self.ensemble.betas).softmax(dim=1)
         ensemble_prob = model_probs @ self.ensemble.ensemble_weights
         return ensemble_prob
 
@@ -679,9 +744,34 @@ class SuperLearnerLogitsStrategy(Strategy):
     requires_SGD = False
 
     def build_fn(self) -> None:
-        self.ensemble.train_super_learner()
+        self._initialize_uniform_ensemble_weights()
+        self.ensemble.train_ensemble_weights_with_conjugate_gradient()
 
     def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = logits @ self.ensemble.ensemble_weights
         ensemble_prob = ensemble_logits.softmax(dim=1)
         return ensemble_prob
+
+    def get_gradient_and_hessian(
+        self, inputs: torch.Tensor, labels: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        logits = self.ensemble(inputs)
+        logits_star = logits[torch.arange(len(labels)), labels]
+        ensemble_probs = self.pred_fn(logits)
+
+        logits_star_data_mean = logits_star.mean(dim=0)
+        logits_class_mean = (logits * ensemble_probs[..., None]).sum(dim=1)
+        logits_class_and_data_mean = logits_class_mean.mean(dim=0)
+        gradient = logits_class_and_data_mean - logits_star_data_mean
+
+        logits_12_class_and_data_mean = (
+            (logits[..., None] * logits[:, :, None] * ensemble_probs[..., None, None])
+            .sum(dim=1)
+            .mean(dim=0)
+        )
+        logits_12_class_then_data_mean = (
+            logits_class_mean[:, None] * logits_class_mean[..., None]
+        ).mean(dim=0)
+        hessian = logits_12_class_and_data_mean - logits_12_class_then_data_mean
+
+        return gradient, hessian
