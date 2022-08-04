@@ -15,7 +15,6 @@ from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 
 import data
-import ensemble_metrics
 
 logging.basicConfig(level=logging.DEBUG, format=det.LOG_FORMAT)
 
@@ -192,7 +191,7 @@ class ClassificationEnsemble(nn.Module):
 
     def build_ensemble(self) -> None:
         logging.info("Building ensemble...")
-        self._strategy.build_fn()
+        self._strategy.build()
 
     def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
         """Returns logits for the models, stacked along the last dimension."""
@@ -204,7 +203,7 @@ class ClassificationEnsemble(nn.Module):
     def get_ensembled_preds_from_inputs(self, inputs: List[torch.Tensor]) -> torch.Tensor:
         """Returns predictions for the ensembled model."""
         logits = self(inputs)
-        ensembled_preds = self._strategy.pred_fn(logits)
+        ensembled_preds = self._strategy.pred(logits)
         if self._strategy.generates_probabilities and self.sanity_check:
             prob_sum_check = ensembled_preds.sum(dim=1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
@@ -327,17 +326,11 @@ class ClassificationEnsemble(nn.Module):
         """Calibrates temperatures for all base models in the ensemble in parallel using Newton's
         method."""
         self.betas = torch.ones(self.num_models, device=self.device)
-        gradient_aggregator = ensemble_metrics.VectorizedMeanMetric()
-        hessian_aggregator = ensemble_metrics.VectorizedMeanMetric()
         with torch.no_grad():
             for epoch_idx in range(self.epochs):
                 beta_history = [self.betas.clone()]
-                num_aggregations = len(self.train_loader) // self.aggregation_batches
-                num_batches = num_aggregations * self.aggregation_batches
                 for inputs, labels, batch_idx in self.batch_generator(
-                    split="train",
-                    desc=f"Calibrating Temperature (epoch {epoch_idx})",
-                    num_batches=num_batches,
+                    split="train", desc=f"Calibrating Temperature (epoch {epoch_idx})"
                 ):
                     score = self(inputs)
                     probs = (self.betas * score).softmax(dim=1)
@@ -346,8 +339,6 @@ class ClassificationEnsemble(nn.Module):
                     score2_label_mean = (probs * score ** 2).sum(dim=1)
                     gradient = score_label_mean.mean(dim=0) - mean_true_score
                     hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
-                    gradient_aggregator.update(gradient)
-                    hessian_aggregator.update(hessian)
                     self.trained_batches += 1
                     if not (batch_idx + 1) % self.aggregation_batches:
                         gradient = gradient_aggregator.compute()
@@ -374,7 +365,7 @@ class ClassificationEnsemble(nn.Module):
         gradient: torch.Tensor,
         hessian: torch.Tensor,
         initial_guess: Optional[torch.Tensor] = None,
-        grad_stop_threshold: float = 1e-8,
+        grad_stop_threshold: float = 1e-5,
     ) -> torch.Tensor:
         with torch.no_grad():
             if self.sanity_check:
@@ -414,51 +405,45 @@ class ClassificationEnsemble(nn.Module):
     def train_ensemble_weights_with_conjugate_gradient(
         self,
         initial_guess: Optional[torch.Tensor] = None,
-        grad_stop_threshold: float = 1e-8,
+        grad_stop_threshold: float = 1e-5,
+        max_cg_steps: int = 10,
         clip_magnitude: float = 0.1,
     ) -> None:
         with torch.no_grad():
-            gradient_aggregator = ensemble_metrics.VectorizedMeanMetric()
-            hessian_aggregator = ensemble_metrics.VectorizedMeanMetric()
+            ensemble_weight_history = [self.ensemble_weights.clone()]
             for epoch_idx in range(self.epochs):
-                ensemble_weight_history = [self.ensemble_weights.clone()]
-                num_aggregations = len(self.train_loader) // self.aggregation_batches
-                num_batches = num_aggregations * self.aggregation_batches
                 for inputs, labels, batch_idx in self.batch_generator(
                     split="train",
                     desc=f"Calibrating Temperature (epoch {epoch_idx})",
-                    num_batches=num_batches,
                 ):
-                    gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
-                    gradient_aggregator.update(gradient)
-                    hessian_aggregator.update(hessian)
                     self.trained_batches += 1
-                    if not (batch_idx + 1) % self.aggregation_batches:
-                        gradient = gradient_aggregator.compute()
-                        gradient_aggregator.reset()
-                        hessian = hessian_aggregator.compute()
-                        hessian_aggregator.reset()
+                    for step_idx in range(max_cg_steps):
+                        gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
                         delta_ensemble_weights = self._conjugate_gradient(
                             gradient=gradient,
                             hessian=hessian,
                             initial_guess=initial_guess,
                             grad_stop_threshold=grad_stop_threshold,
                         )
+                        # nans can occur near convergence as the gradient and hessian become small.
+                        if delta_ensemble_weights.isnan().any():
+                            break
                         # Clamp to help prevent runaways due to noise or a poor starting point.
                         delta_ensemble_weights = delta_ensemble_weights.clamp(
                             min=-clip_magnitude,
                             max=clip_magnitude,
                         )
                         self.ensemble_weights += delta_ensemble_weights
-                        ensemble_weight_history.append(self.ensemble_weights.clone())
-                        self.update_metrics(self.get_ensembled_preds_from_inputs(inputs), labels)
-                        ensemble_weight_dict = {
-                            f"ensemble_weight_{idx}": w.item()
-                            for idx, w in enumerate(self.ensemble_weights)
-                        }
-                        if self.is_chief:
-                            self.report_train_metrics(extra_train_log_metrics=ensemble_weight_dict)
-                        self.reset_metrics()
+                    preds = self.get_ensembled_preds_from_inputs(inputs)
+                    self.update_metrics(preds, labels)
+                    ensemble_weight_dict = {
+                        f"ensemble_weight_{idx}": w.item()
+                        for idx, w in enumerate(self.ensemble_weights)
+                    }
+                    if self.is_chief:
+                        self.report_train_metrics(extra_train_log_metrics=ensemble_weight_dict)
+                    self.reset_metrics()
+                    ensemble_weight_history.append(self.ensemble_weights.clone())
             # We use the mean of all weights across the history as the final weights
             self.ensemble_weights = torch.stack(ensemble_weight_history, dim=0).mean(dim=0)
             if self.core_context.preempt.should_preempt():
@@ -488,12 +473,12 @@ class Strategy(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def build_fn(self) -> None:
+    def build(self) -> None:
         """Performs all setup and training necessary for the strategy."""
         pass
 
     @abc.abstractmethod
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         """Returns a prediction given the logits of the base models in the ensemble, stacked along
         the final dimension.  The output should either be in the form of probabilities or a
         single prediction."""
@@ -521,10 +506,10 @@ class NaiveStrategy(Strategy):
     requires_training = False
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = logits.softmax(dim=1)
         ensemble_probs = model_probs @ self.ensemble.ensemble_weights
         return ensemble_probs
@@ -539,11 +524,11 @@ class NaiveTempStrategy(Strategy):
     requires_training = True
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
         self.ensemble.calibrate_temperature()
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = (logits * self.ensemble.betas).softmax(dim=1)
         ensemble_probs = model_probs @ self.ensemble.ensemble_weights
         return ensemble_probs
@@ -556,10 +541,10 @@ class NaiveLogitsStrategy(Strategy):
     requires_training = False
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = logits @ self.ensemble.ensemble_weights
         ensemble_probs = ensemble_logits.softmax(dim=1)
         return ensemble_probs
@@ -572,11 +557,11 @@ class NaiveLogitsTempStrategy(Strategy):
     requires_training = True
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
         self.ensemble.calibrate_temperature()
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = (logits * self.ensemble.betas) @ self.ensemble.ensemble_weights
         ensemble_probs = ensemble_logits.softmax(dim=1)
         return ensemble_probs
@@ -589,10 +574,10 @@ class MostConfidentStrategy(Strategy):
     requires_training = False
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         pass
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = logits.softmax(dim=1)
         max_idxs = model_probs.max(dim=1).values.argmax(dim=-1)
         ensemble_probs = model_probs[torch.arange(len(max_idxs)), ..., max_idxs]
@@ -608,10 +593,10 @@ class MostConfidentTempStrategy(Strategy):
     requires_training = True
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         self.ensemble.calibrate_temperature()
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = (logits * self.ensemble.betas).softmax(dim=1)
         max_idxs = model_probs.max(dim=1).values.argmax(dim=-1)
         ensemble_probs = model_probs[torch.arange(len(max_idxs)), ..., max_idxs]
@@ -627,10 +612,10 @@ class MajorityVoteStrategy(Strategy):
     requires_training = False
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         pass
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         ensembles_preds = logits.argmax(dim=1)
         majority_vote_preds = ensembles_preds.mode(-1).values
         return majority_vote_preds
@@ -643,7 +628,7 @@ class VBMCStrategy(Strategy):
     requires_training = True
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         # Generate num_combinations sets of model combinations.
         # We use a flat prior over this discrete set.
         dirichlet = torch.distributions.dirichlet.Dirichlet(torch.ones(self.ensemble.num_models))
@@ -653,7 +638,7 @@ class VBMCStrategy(Strategy):
         # _other_weights is (self.ensemble.num_models, self.ensemble.num_combinations)-shaped
         self.ensemble.train_vbmc()
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         if self.ensemble.sanity_check:
             prob_sum_check = self.ensemble.ensemble_weights.sum(dim=-1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
@@ -669,7 +654,7 @@ class VBMCTempStrategy(Strategy):
     requires_training = True
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         # Generate num_combinations sets of model combinations.
         # We use a flat prior over this discrete set.
         dirichlet = torch.distributions.dirichlet.Dirichlet(torch.ones(self.ensemble.num_models))
@@ -680,7 +665,7 @@ class VBMCTempStrategy(Strategy):
         self.ensemble.calibrate_temperature()
         self.ensemble.train_vbmc()
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         if self.ensemble.sanity_check:
             prob_sum_check = self.ensemble.ensemble_weights.sum(dim=-1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
@@ -698,11 +683,11 @@ class SuperLearnerProbsStrategy(Strategy):
     requires_training = True
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
         self.ensemble.train_ensemble_weights_with_conjugate_gradient()
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         model_probs = logits.softmax(dim=1)
         ensemble_probs = model_probs @ self.ensemble.ensemble_weights.softmax(dim=-1)
         return ensemble_probs
@@ -755,7 +740,7 @@ class SuperLearnerProbsTempStrategy(SuperLearnerProbsStrategy):
     with the weights adding to unity.
     """
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
         self.ensemble.calibrate_temperature()
         self.ensemble.train_ensemble_weights_with_conjugate_gradient()
@@ -770,11 +755,11 @@ class SuperLearnerLogitsStrategy(Strategy):
     requires_training = True
     requires_SGD = False
 
-    def build_fn(self) -> None:
+    def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
         self.ensemble.train_ensemble_weights_with_conjugate_gradient()
 
-    def pred_fn(self, logits: torch.Tensor) -> torch.Tensor:
+    def pred(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = logits @ self.ensemble.ensemble_weights
         ensemble_probs = ensemble_logits.softmax(dim=1)
         return ensemble_probs
