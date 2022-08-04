@@ -322,7 +322,12 @@ class ClassificationEnsemble(nn.Module):
         if self.core_context.preempt.should_preempt():
             return
 
-    def calibrate_temperature(self, clip_magnitude: float = 0.1) -> None:
+    def calibrate_temperature(
+        self,
+        stop_threshold: float = 1e-5,
+        max_steps_per_batch: int = 5,
+        clip_magnitude: float = 0.1,
+    ) -> None:
         """Calibrates temperatures for all base models in the ensemble in parallel using Newton's
         method."""
         self.betas = torch.ones(self.num_models, device=self.device)
@@ -332,29 +337,27 @@ class ClassificationEnsemble(nn.Module):
                 for inputs, labels, batch_idx in self.batch_generator(
                     split="train", desc=f"Calibrating Temperature (epoch {epoch_idx})"
                 ):
-                    score = self(inputs)
-                    probs = (self.betas * score).softmax(dim=1)
-                    mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
-                    score_label_mean = (probs * score).sum(dim=1)
-                    score2_label_mean = (probs * score ** 2).sum(dim=1)
-                    gradient = score_label_mean.mean(dim=0) - mean_true_score
-                    hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
                     self.trained_batches += 1
-                    if not (batch_idx + 1) % self.aggregation_batches:
-                        gradient = gradient_aggregator.compute()
-                        gradient_aggregator.reset()
-                        hessian = hessian_aggregator.compute()
-                        hessian_aggregator.reset()
+                    for step_idx in range(max_steps_per_batch):
+                        score = self(inputs)
+                        probs = (self.betas * score).softmax(dim=1)
+                        mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
+                        score_label_mean = (probs * score).sum(dim=1)
+                        score2_label_mean = (probs * score ** 2).sum(dim=1)
+                        gradient = score_label_mean.mean(dim=0) - mean_true_score
+                        hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
                         delta_beta = -1 * gradient / hessian
+                        if delta_beta.isnan().any() or delta_beta.abs().max() < stop_threshold:
+                            break
                         # Clamp to help prevent runaways due to noise
                         delta_beta = delta_beta.clamp(min=-clip_magnitude, max=clip_magnitude)
                         self.betas += delta_beta
-                        beta_history.append(self.betas.clone())
-                        beta_dict = {f"beta_{idx}": b.item() for idx, b in enumerate(self.betas)}
-                        if self.is_chief:
-                            self.core_context.train.report_training_metrics(
-                                steps_completed=self.trained_batches, metrics=beta_dict
-                            )
+                    beta_history.append(self.betas.clone())
+                    beta_dict = {f"beta_{idx}": b.item() for idx, b in enumerate(self.betas)}
+                    if self.is_chief:
+                        self.core_context.train.report_training_metrics(
+                            steps_completed=self.trained_batches, metrics=beta_dict
+                        )
             # We use the mean of all betas across the history as the final beta value
             self.betas = torch.stack(beta_history, dim=0).mean(dim=0)
             if self.core_context.preempt.should_preempt():
@@ -365,7 +368,7 @@ class ClassificationEnsemble(nn.Module):
         gradient: torch.Tensor,
         hessian: torch.Tensor,
         initial_guess: Optional[torch.Tensor] = None,
-        grad_stop_threshold: float = 1e-5,
+        stop_threshold: float = 1e-5,
     ) -> torch.Tensor:
         with torch.no_grad():
             if self.sanity_check:
@@ -388,13 +391,13 @@ class ClassificationEnsemble(nn.Module):
                     if self.sanity_check:
                         residual = gradient + hessian @ x_next
                         residual_norm = residual.norm()
-                        if residual_norm > grad_stop_threshold:
+                        if residual_norm > stop_threshold:
                             logging.warning(
                                 f"Conjugate gradient residual larger "
-                                f"than {grad_stop_threshold}: {residual_norm.item()}:"
+                                f"than {stop_threshold}: {residual_norm.item()}:"
                             )
                     return x_next
-                if g_next_squared.sqrt() < grad_stop_threshold:
+                if g_next_squared.sqrt() < stop_threshold:
                     return x_next
                 beta_prev = g_next_squared / g_prev_squared
                 p_prev = g_next + beta_prev * p_prev
@@ -405,8 +408,8 @@ class ClassificationEnsemble(nn.Module):
     def train_ensemble_weights_with_conjugate_gradient(
         self,
         initial_guess: Optional[torch.Tensor] = None,
-        grad_stop_threshold: float = 1e-5,
-        max_cg_steps: int = 10,
+        stop_threshold: float = 1e-5,
+        max_steps_per_batch: int = 5,
         clip_magnitude: float = 0.1,
     ) -> None:
         with torch.no_grad():
@@ -414,19 +417,23 @@ class ClassificationEnsemble(nn.Module):
             for epoch_idx in range(self.epochs):
                 for inputs, labels, batch_idx in self.batch_generator(
                     split="train",
-                    desc=f"Calibrating Temperature (epoch {epoch_idx})",
+                    desc=f"Conjugate Gradient Training (epoch {epoch_idx})",
                 ):
                     self.trained_batches += 1
-                    for step_idx in range(max_cg_steps):
+                    for step_idx in range(max_steps_per_batch):
                         gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
                         delta_ensemble_weights = self._conjugate_gradient(
                             gradient=gradient,
                             hessian=hessian,
                             initial_guess=initial_guess,
-                            grad_stop_threshold=grad_stop_threshold,
+                            stop_threshold=stop_threshold,
                         )
-                        # nans can occur near convergence as the gradient and hessian become small.
-                        if delta_ensemble_weights.isnan().any():
+                        # Break if there is a nan (often due to tiny gradients or hessians) or
+                        # the update threshold is reached
+                        if (
+                            delta_ensemble_weights.isnan().any()
+                            or delta_ensemble_weights.abs().max() < stop_threshold
+                        ):
                             break
                         # Clamp to help prevent runaways due to noise or a poor starting point.
                         delta_ensemble_weights = delta_ensemble_weights.clamp(
