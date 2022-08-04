@@ -119,7 +119,7 @@ for strategy in args.ensemble_strategy:
             args.experiment_name = "_".join(name_components)
 
         config = {
-            "entrypoint": "python -m determined.launch.torch_distributed -- python -m main",
+            "entrypoint": "python -m determined.launch.torch_distributed -- python -m main_timm",
             "name": args.experiment_name,
             "workspace": workspace_name,
             "project": project_name,

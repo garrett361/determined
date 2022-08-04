@@ -1,7 +1,6 @@
 #!/bin/bash
 read -p "Master URL: " MASTER_URL
-read -p "Run all 1-ensembles (yes/NO) " ONE_ENSEMBLES
-read -p "Number of base models > 1 to use (Default 2 3 4 5): " NUM_BASE_MODELS
+read -p "Number of base models to use (Default 2 3 4 5): " NUM_BASE_MODELS
 read -p "Number of Ensembles per strategy, when using > 1 base models (Default 100): " NUM_ENSEMBLES
 read -p "Number of combinations for VBMC (Default 512): " NUM_COMBINATIONS
 read -p "Number of training epochs, when applicable (Default 2): " EPOCHS
@@ -13,7 +12,6 @@ echo -e "\nThis will run all ensembling experiments with the following parameter
 
 echo "Master URL: $MASTER_URL"
 echo "Number of base models: ${NUM_BASE_MODELS:=2 3 4 5}"
-echo "Run all 1-ensembles ${ONE_ENSEMBLES:=NO}"
 echo "Number of Ensembles per strategy, when using > 1 base models: ${NUM_ENSEMBLES:=100}"
 echo "Number of combinations for VBMC: ${NUM_COMBINATIONS:=512}"
 echo "Number of training epochs for SGD training: ${EPOCHS:=2}"
@@ -28,13 +26,6 @@ case $PROCEED_CONFIRM in
 	yes ) echo Submitting;;
 	* ) echo Exiting;
 		exit 1;;
-esac
-
-case $ONE_ENSEMBLES in
-	yes ) echo "Running 1-base-model ensembles";
-	# Single model baselines
-  python3 script.py -m "$MASTER_URL" -nbm 1 -ne -1 -es naive -mc "$MODEL_CRITERIA" --no_safety_check;;
-	* ) echo "Skipping 1-base-model ensembles";;
 esac
 
 # Run $NUM_ENSEMBLES ensembles for every X-model ensembles, X in "$NUM_BASE_MODELS"
