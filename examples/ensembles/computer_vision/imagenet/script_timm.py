@@ -75,6 +75,7 @@ workspace = workspaces.Workspace(
     master_url=args.master,
     username=args.user,
     password=args.password,
+    create_workspace=True,
 )
 workspace.create_project(project_name)
 if args.delete_unvalidated:
