@@ -415,9 +415,15 @@ class ClassificationEnsemble(nn.Module):
         with torch.no_grad():
             ensemble_weight_history = [self.ensemble_weights.clone()]
             for epoch_idx in range(self.epochs):
+<<<<<<< HEAD
                 for inputs, labels, batch_idx in self.batch_generator(
                     split="train",
                     desc=f"Conjugate Gradient Training (epoch {epoch_idx})",
+=======
+                ensemble_weight_history = [self.ensemble_weights.clone()]
+                for inputs, labels, batch_idx in self.batch_generator(
+                    split="train", desc=f"Conjugate Gradient Training (epoch {epoch_idx})"
+>>>>>>> aa0b65433 (method name change)
                 ):
                     self.trained_batches += 1
                     for step_idx in range(max_steps_per_batch):
