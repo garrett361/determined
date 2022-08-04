@@ -324,7 +324,7 @@ class ClassificationEnsemble(nn.Module):
 
     def calibrate_temperature(
         self,
-        stop_threshold: float = 1e-5,
+        stop_threshold: float = 1e-4,
         max_steps_per_batch: int = 5,
         clip_magnitude: float = 0.1,
     ) -> None:
@@ -368,7 +368,7 @@ class ClassificationEnsemble(nn.Module):
         gradient: torch.Tensor,
         hessian: torch.Tensor,
         initial_guess: Optional[torch.Tensor] = None,
-        stop_threshold: float = 1e-5,
+        stop_threshold: float = 1e-4,
     ) -> torch.Tensor:
         with torch.no_grad():
             if self.sanity_check:
@@ -408,7 +408,7 @@ class ClassificationEnsemble(nn.Module):
     def train_ensemble_weights_with_conjugate_gradient(
         self,
         initial_guess: Optional[torch.Tensor] = None,
-        stop_threshold: float = 1e-5,
+        stop_threshold: float = 1e-4,
         max_steps_per_batch: int = 5,
         clip_magnitude: float = 0.1,
     ) -> None:
