@@ -175,7 +175,7 @@ class ClassificationEnsemble(nn.Module):
         loader = DataLoader(self.val_dataset, batch_size=self.val_batch_size, sampler=sampler)
         return loader
 
-    def get_batches(
+    def batch_generator(
         self, split: Literal["train", "val", "test"], desc: str = ""
     ) -> Generator[Tuple[List[torch.Tensor], torch.Tensor, int], None, None]:
         loader_dict = {"train": self.train_loader, "val": self.val_loader, "test": self.test_loader}
@@ -209,7 +209,7 @@ class ClassificationEnsemble(nn.Module):
     def validate_ensemble(self) -> None:
         self.models.eval()
         with torch.no_grad():
-            for inputs, labels, batch_idx in self.get_batches(split="val", desc="Validating"):
+            for inputs, labels, batch_idx in self.batch_generator(split="val", desc="Validating"):
                 labels = labels.to(self.device)
                 probs = self.get_ensembled_preds_from_inputs(inputs)
                 self.update_metrics(probs, labels)
@@ -285,7 +285,9 @@ class ClassificationEnsemble(nn.Module):
         with torch.no_grad():
             self._log_likelihoods = torch.zeros(self.num_combinations, device=self.device)
             vbmc_criterion = nn.NLLLoss(reduction="none")
-            for inputs, labels, batch_idx in self.get_batches(split="train", desc="Training VBMC"):
+            for inputs, labels, batch_idx in self.batch_generator(
+                split="train", desc="Training VBMC"
+            ):
                 logits = self(inputs)
                 probs = logits.softmax(dim=1)
                 ensemble_probs = probs @ self._other_weights
@@ -326,7 +328,7 @@ class ClassificationEnsemble(nn.Module):
         with torch.no_grad():
             for epoch_idx in range(self.epochs):
                 beta_history = [self.betas.clone()]
-                for inputs, labels, batch_idx in self.get_batches(
+                for inputs, labels, batch_idx in self.batch_generator(
                     split="train", desc=f"Calibrating Temperature (epoch {epoch_idx})"
                 ):
                     score = self(inputs)
@@ -412,7 +414,7 @@ class ClassificationEnsemble(nn.Module):
             hessian_aggregator = ensemble_metrics.VectorizedMeanMetric()
             for epoch_idx in range(self.epochs):
                 ensemble_weight_history = [self.ensemble_weights.clone()]
-                for inputs, labels, batch_idx in self.get_batches(
+                for inputs, labels, batch_idx in self.batch_generator(
                     split="train", desc=f"Conjugate Gradient Training (epoch {epoch_idx})"
                 ):
                     gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
