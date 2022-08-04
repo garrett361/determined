@@ -46,6 +46,7 @@ parser.add_argument("-lr", "--learning-rate", type=float, default=None)
 parser.add_argument("-e", "--epochs", type=int, default=None)
 parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-ad", "--allow_duplicates", action="store_true")
+parser.add_argument("-du", "--delete_unvalidated", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-nsc", "--no_safety_check", action="store_true")
 args = parser.parse_args()
@@ -76,9 +77,10 @@ workspace = workspaces.Workspace(
     password=args.password,
 )
 workspace.create_project(project_name)
-workspace.delete_experiments_with_unvalidated_trials(
-    projects_to_delete_from=project_name, safe_mode=False
-)
+if args.delete_unvalidated:
+    workspace.delete_experiments_with_unvalidated_trials(
+        projects_to_delete_from=project_name, safe_mode=False
+    )
 existing_trials_df = workspace.get_trial_latest_val_results_df(project_names=project_name)
 
 with suppress_stdout():

@@ -29,6 +29,6 @@ case $PROCEED_CONFIRM in
 esac
 
 # Run $NUM_ENSEMBLES ensembles for every X-model ensembles, X in "$NUM_BASE_MODELS"
-python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_ENSEMBLES" -es naive naive_logits most_confident majority_vote -mc "$MODEL_CRITERIA" --no_safety_check
+python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_ENSEMBLES" -es naive naive_logits most_confident majority_vote -mc "$MODEL_CRITERIA" --no_safety_check --delete_unvalidated
 python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_ENSEMBLES" -es naive_temp naive_logits_temp most_confident_temp super_learner_probs super_learner_logits -mc "$MODEL_CRITERIA" --no_safety_check -e "$EPOCHS"
 python3 script.py -m "$MASTER_URL" -nbm "$NUM_BASE_MODELS" -ne "$NUM_ENSEMBLES" -es vbmc vbmc_temp -mc "$MODEL_CRITERIA" -nc "$NUM_COMBINATIONS" --no_safety_check
