@@ -45,6 +45,7 @@ parser.add_argument("-nc", "--num_combinations", type=int, default=None)
 parser.add_argument("-lr", "--learning-rate", type=float, default=None)
 parser.add_argument("-e", "--epochs", type=int, default=None)
 parser.add_argument("-sc", "--sanity_check", action="store_true")
+parser.add_argument("-ad", "--allow_duplicates", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-nsc", "--no_safety_check", action="store_true")
 args = parser.parse_args()
@@ -75,7 +76,10 @@ workspace = workspaces.Workspace(
     password=args.password,
 )
 workspace.create_project(project_name)
-
+workspace.delete_experiments_with_unvalidated_trials(
+    projects_to_delete_from=project_name, safe_mode=False
+)
+existing_trials_df = workspace.get_trial_latest_val_results_df(project_names=project_name)
 
 with suppress_stdout():
     client.login(master=args.master, user=args.user, password=args.password)
@@ -108,7 +112,15 @@ for strategy in args.ensemble_strategy:
         "\n",
     )
 
+skipped_trials = 0
 for strategy in args.ensemble_strategy:
+    # Check if a Trial with the same strategy and model names already exists
+    existing_strategy_trials_df = existing_trials_df[
+        existing_trials_df.ensemble_strategy == strategy
+    ]
+    existing_strategy_trials_model_names = [
+        set(names) for names in existing_strategy_trials_df.model_names
+    ]
     for num_base_models in args.num_base_models:
         if generate_names:
             name_components = [
@@ -154,6 +166,15 @@ for strategy in args.ensemble_strategy:
             )
         desc = f"{num_base_models} model{'s' if num_base_models != 1 else ''} {strategy} ensembles"
         for model_names in tqdm.tqdm(ensembles, desc=desc):
+            # Skip if the model_names/strategy combination already exists
+            if (
+                not args.allow_duplicates
+                and set(model_names) in existing_strategy_trials_model_names
+            ):
+                skipped_trials += 1
+                print(f"{model_names}/{strategy} Trial already exists in Project; skipping.")
+                print(f"{skipped_trials} total Trials skipped.")
+                continue
             config["hyperparameters"]["model_names"] = list(model_names)
             with suppress_stdout():
                 client.create_experiment(config=config, model_dir=".")
