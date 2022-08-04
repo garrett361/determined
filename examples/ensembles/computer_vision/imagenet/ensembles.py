@@ -176,11 +176,15 @@ class ClassificationEnsemble(nn.Module):
         return loader
 
     def batch_generator(
-        self, split: Literal["train", "val", "test"], desc: str = ""
+        self,
+        split: Literal["train", "val", "test"],
+        desc: str = "",
+        num_batches: Optional[int] = None,
     ) -> Generator[Tuple[List[torch.Tensor], torch.Tensor, int], None, None]:
         loader_dict = {"train": self.train_loader, "val": self.val_loader, "test": self.test_loader}
         loader = loader_dict[split]
-        for batch_idx, batch in enumerate(tqdm.tqdm(loader, desc=desc)):
+        num_batches = num_batches or len(loader)
+        for batch_idx, batch in tqdm.tqdm(zip(range(num_batches), loader), desc=desc):
             inputs, labels = batch
             inputs = [inpt.to(self.device) for inpt in inputs]
             labels = labels.to(self.device)
@@ -328,8 +332,12 @@ class ClassificationEnsemble(nn.Module):
         with torch.no_grad():
             for epoch_idx in range(self.epochs):
                 beta_history = [self.betas.clone()]
+                num_aggregations = len(self.train_loader) // self.aggregation_batches
+                num_batches = num_aggregations * self.aggregation_batches
                 for inputs, labels, batch_idx in self.batch_generator(
-                    split="train", desc=f"Calibrating Temperature (epoch {epoch_idx})"
+                    split="train",
+                    desc=f"Calibrating Temperature (epoch {epoch_idx})",
+                    num_batches=num_batches,
                 ):
                     score = self(inputs)
                     probs = (self.betas * score).softmax(dim=1)
@@ -414,8 +422,12 @@ class ClassificationEnsemble(nn.Module):
             hessian_aggregator = ensemble_metrics.VectorizedMeanMetric()
             for epoch_idx in range(self.epochs):
                 ensemble_weight_history = [self.ensemble_weights.clone()]
+                num_aggregations = len(self.train_loader) // self.aggregation_batches
+                num_batches = num_aggregations * self.aggregation_batches
                 for inputs, labels, batch_idx in self.batch_generator(
-                    split="train", desc=f"Conjugate Gradient Training (epoch {epoch_idx})"
+                    split="train",
+                    desc=f"Calibrating Temperature (epoch {epoch_idx})",
+                    num_batches=num_batches,
                 ):
                     gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
                     gradient_aggregator.update(gradient)
