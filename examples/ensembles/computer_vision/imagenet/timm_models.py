@@ -8,7 +8,6 @@ import math
 import random
 from typing import Literal, List
 
-import determined as det
 import pandas as pd
 import timm
 import torch.nn as nn
