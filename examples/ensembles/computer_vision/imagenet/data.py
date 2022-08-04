@@ -23,8 +23,8 @@ TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
 SPLIT_PICKLE_PATH = "imagenetv2_train_val_test_idx_mappings.pkl"
 
 
-class RAMImageFolder:
-    """Loads the usual ImageFolder results into memory. Can accept a list or tuple of transforms."""
+class MultiTransImageFolder:
+    """The basic ImageFolder, but with multiple transforms applied to the images."""
 
     def __init__(
         self,
@@ -32,19 +32,16 @@ class RAMImageFolder:
         target_transform: Callable,
         transforms: Union[Callable, Sequence[Callable]],
     ) -> None:
-        if not isinstance(transforms, Sequence):
-            transforms = [transforms]
-        im_folder = ImageFolder(root=root, target_transform=target_transform)
-        self.samples = []
-        for im, target in im_folder:
-            transformed_ims = [transform(im) for transform in transforms]
-            self.samples.append((transformed_ims, target))
+        self.transforms = transforms if isinstance(transforms, Sequence) else [transforms]
+        self.im_folder = ImageFolder(root=root, target_transform=target_transform)
 
     def __len__(self) -> int:
-        return len(self.samples)
+        return len(self.im_folder)
 
-    def __getitem__(self, idx) -> TorchData:
-        return self.samples[idx]
+    def __getitem__(self, idx) -> Tuple[List[torch.Tensor], torch.Tensor]:
+        sample, target = self.im_folder[idx]
+        samples = [t(sample) for t in self.transforms]
+        return samples, target
 
 
 # ImageNetv2 labels its directories with the corresponding ImageNet idx. This requires special
@@ -121,55 +118,55 @@ DATASET_METADATA_BY_NAME = {
     "imagewang": DatasetMetadata(
         num_classes=20,
         root="shared_fs/data/imagewang",
-        dataset_class=RAMImageFolder,
+        dataset_class=MultiTransImageFolder,
         target_transform_path="imagewang_to_imagenet_idx_map.pkl",
     ),
     "imagewang-160": DatasetMetadata(
         num_classes=20,
         root="shared_fs/data/imagewang-160",
-        dataset_class=RAMImageFolder,
+        dataset_class=MultiTransImageFolder,
         target_transform_path="imagewang_to_imagenet_idx_map.pkl",
     ),
     "imagewang-320": DatasetMetadata(
         num_classes=20,
         root="shared_fs/data/imagewang-320",
-        dataset_class=RAMImageFolder,
+        dataset_class=MultiTransImageFolder,
         target_transform_path="imagewang_to_imagenet_idx_map.pkl",
     ),
     "imagewoof2": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagewoof2",
-        dataset_class=RAMImageFolder,
+        dataset_class=MultiTransImageFolder,
         target_transform_path="imagewoof2_to_imagenet_idx_map.pkl",
     ),
     "imagewoof2-160": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagewoof2-160",
-        dataset_class=RAMImageFolder,
+        dataset_class=MultiTransImageFolder,
         target_transform_path="imagewoof2_to_imagenet_idx_map.pkl",
     ),
     "imagewoof2-320": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagewoof2-320",
-        dataset_class=RAMImageFolder,
+        dataset_class=MultiTransImageFolder,
         target_transform_path="imagewoof2_to_imagenet_idx_map.pkl",
     ),
     "imagenette2": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagenette2",
-        dataset_class=RAMImageFolder,
+        dataset_class=MultiTransImageFolder,
         target_transform_path="imagenette2_to_imagenet_idx_map.pkl",
     ),
     "imagenette2-160": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagenette2-160",
-        dataset_class=RAMImageFolder,
+        dataset_class=MultiTransImageFolder,
         target_transform_path="imagenette2_to_imagenet_idx_map.pkl",
     ),
     "imagenette2-320": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagenette2-320",
-        dataset_class=RAMImageFolder,
+        dataset_class=MultiTransImageFolder,
         target_transform_path="imagenette2_to_imagenet_idx_map.pkl",
     ),
 }
@@ -188,7 +185,7 @@ def get_dataset(
     transforms: Union[Callable, List[Callable]] = None,
 ) -> Dataset:
     dataset_metadata = DATASET_METADATA_BY_NAME[name].to_attrdict()
-    if dataset_metadata.dataset_class == RAMImageFolder:
+    if dataset_metadata.dataset_class == MultiTransImageFolder:
         root = dataset_metadata.root + "/" + split
         target_transform = build_target_transform(dataset_metadata.target_transform_path)
         dataset = dataset_metadata.dataset_class(
