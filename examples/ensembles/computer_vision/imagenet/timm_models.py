@@ -1,8 +1,3 @@
-"""From timm==0.6.5, we took the top-ten performing model with pre-trained weights as measured
-by ImageNet validation accuracy (top-1), as well as the top-ten smallest models which achieved at
-least 75% accuracy on the same task.
-"""
-
 import itertools
 import math
 import random
