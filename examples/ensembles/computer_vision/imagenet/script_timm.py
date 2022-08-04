@@ -117,12 +117,15 @@ for strategy in args.ensemble_strategy:
 skipped_trials = 0
 for strategy in args.ensemble_strategy:
     # Check if a Trial with the same strategy and model names already exists
-    existing_strategy_trials_df = existing_trials_df[
-        existing_trials_df.ensemble_strategy == strategy
-    ]
-    existing_strategy_trials_model_names = [
-        set(names) for names in existing_strategy_trials_df.model_names
-    ]
+    if existing_trials_df.empty:
+        existing_strategy_trials_model_names = []
+    else:
+        existing_strategy_trials_df = existing_trials_df[
+            existing_trials_df.ensemble_strategy == strategy
+        ]
+        existing_strategy_trials_model_names = [
+            set(names) for names in existing_strategy_trials_df.model_names
+        ]
     for num_base_models in args.num_base_models:
         if generate_names:
             name_components = [
