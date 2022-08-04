@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 
 import data
+import ensemble_metrics
 
 logging.basicConfig(level=logging.DEBUG, format=det.LOG_FORMAT)
 
@@ -42,6 +43,7 @@ class ClassificationEnsemble(nn.Module):
         num_combinations: Optional[int] = None,
         lr: Optional[float] = None,
         epochs: Optional[int] = None,
+        aggregation_batches: Optional[int] = 4,
         random_seed: int = 42,
     ) -> None:
         super().__init__()
@@ -61,6 +63,7 @@ class ClassificationEnsemble(nn.Module):
         self.num_combinations = num_combinations
         self.lr = lr
         self.epochs = epochs
+        self.aggregation_batches = aggregation_batches
         self.random_seed = random_seed
 
         self.rank = core_context.distributed.rank
@@ -314,35 +317,43 @@ class ClassificationEnsemble(nn.Module):
         if self.core_context.preempt.should_preempt():
             return
 
-    def calibrate_temperature(self, clip_magnitude: float = 0.1, steps_per_batch: int = 3) -> None:
+    def calibrate_temperature(self, clip_magnitude: float = 0.1) -> None:
         """Calibrates temperatures for all base models in the ensemble in parallel using Newton's
         method."""
         self.betas = torch.ones(self.num_models, device=self.device)
+        gradient_aggregator = ensemble_metrics.VectorizedMeanMetric()
+        hessian_aggregator = ensemble_metrics.VectorizedMeanMetric()
         with torch.no_grad():
             for epoch_idx in range(self.epochs):
                 beta_history = [self.betas.clone()]
                 for inputs, labels, batch_idx in self.get_batches(
                     split="train", desc=f"Calibrating Temperature (epoch {epoch_idx})"
                 ):
-                    for step in range(steps_per_batch):
-                        score = self(inputs)
-                        probs = (self.betas * score).softmax(dim=1)
-                        mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
-                        score_label_mean = (probs * score).sum(dim=1)
-                        score2_label_mean = (probs * score ** 2).sum(dim=1)
-                        gradient = score_label_mean.mean(dim=0) - mean_true_score
-                        hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
+                    score = self(inputs)
+                    probs = (self.betas * score).softmax(dim=1)
+                    mean_true_score = score[torch.arange(len(labels)), labels].mean(dim=0)
+                    score_label_mean = (probs * score).sum(dim=1)
+                    score2_label_mean = (probs * score ** 2).sum(dim=1)
+                    gradient = score_label_mean.mean(dim=0) - mean_true_score
+                    hessian = (score2_label_mean - score_label_mean ** 2).mean(dim=0)
+                    gradient_aggregator.update(gradient)
+                    hessian_aggregator.update(hessian)
+                    self.trained_batches += 1
+                    if not (batch_idx + 1) % self.aggregation_batches:
+                        gradient = gradient_aggregator.compute()
+                        gradient_aggregator.reset()
+                        hessian = hessian_aggregator.compute()
+                        hessian_aggregator.reset()
                         delta_beta = -1 * gradient / hessian
                         # Clamp to help prevent runaways due to noise
                         delta_beta = delta_beta.clamp(min=-clip_magnitude, max=clip_magnitude)
                         self.betas += delta_beta
                         beta_history.append(self.betas.clone())
-                    beta_dict = {f"beta_{idx}": b.item() for idx, b in enumerate(self.betas)}
-                    self.trained_batches += 1
-                    if self.is_chief:
-                        self.core_context.train.report_training_metrics(
-                            steps_completed=self.trained_batches, metrics=beta_dict
-                        )
+                        beta_dict = {f"beta_{idx}": b.item() for idx, b in enumerate(self.betas)}
+                        if self.is_chief:
+                            self.core_context.train.report_training_metrics(
+                                steps_completed=self.trained_batches, metrics=beta_dict
+                            )
             # We use the mean of all betas across the history as the final beta value
             self.betas = torch.stack(beta_history, dim=0).mean(dim=0)
             if self.core_context.preempt.should_preempt():
@@ -394,17 +405,25 @@ class ClassificationEnsemble(nn.Module):
         self,
         initial_guess: Optional[torch.Tensor] = None,
         grad_stop_threshold: float = 1e-8,
-        steps_per_batch: int = 2,
         clip_magnitude: float = 0.1,
     ) -> None:
         with torch.no_grad():
+            gradient_aggregator = ensemble_metrics.VectorizedMeanMetric()
+            hessian_aggregator = ensemble_metrics.VectorizedMeanMetric()
             for epoch_idx in range(self.epochs):
                 ensemble_weight_history = [self.ensemble_weights.clone()]
                 for inputs, labels, batch_idx in self.get_batches(
                     split="train", desc=f"Conjugate Gradient Training (epoch {epoch_idx})"
                 ):
-                    for step in range(steps_per_batch):
-                        gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
+                    gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
+                    gradient_aggregator.update(gradient)
+                    hessian_aggregator.update(hessian)
+                    self.trained_batches += 1
+                    if not (batch_idx + 1) % self.aggregation_batches:
+                        gradient = gradient_aggregator.compute()
+                        gradient_aggregator.reset()
+                        hessian = hessian_aggregator.compute()
+                        hessian_aggregator.reset()
                         delta_ensemble_weights = self._conjugate_gradient(
                             gradient=gradient,
                             hessian=hessian,
@@ -418,15 +437,14 @@ class ClassificationEnsemble(nn.Module):
                         )
                         self.ensemble_weights += delta_ensemble_weights
                         ensemble_weight_history.append(self.ensemble_weights.clone())
-                    self.trained_batches += 1
-                    self.update_metrics(self.get_ensembled_preds_from_inputs(inputs), labels)
-                    ensemble_weight_dict = {
-                        f"ensemble_weight_{idx}": w.item()
-                        for idx, w in enumerate(self.ensemble_weights)
-                    }
-                    if self.is_chief:
-                        self.report_train_metrics(extra_train_log_metrics=ensemble_weight_dict)
-                    self.reset_metrics()
+                        self.update_metrics(self.get_ensembled_preds_from_inputs(inputs), labels)
+                        ensemble_weight_dict = {
+                            f"ensemble_weight_{idx}": w.item()
+                            for idx, w in enumerate(self.ensemble_weights)
+                        }
+                        if self.is_chief:
+                            self.report_train_metrics(extra_train_log_metrics=ensemble_weight_dict)
+                        self.reset_metrics()
             # We use the mean of all weights across the history as the final weights
             self.ensemble_weights = torch.stack(ensemble_weight_history, dim=0).mean(dim=0)
             if self.core_context.preempt.should_preempt():
