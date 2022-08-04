@@ -232,7 +232,7 @@ class Workspace:
         trial_results_df = trial_results_df[sorted(trial_results_df.columns)]
         return trial_results_df
 
-    def delete_experiment_idxs(self, experiment_idxs: Set[int], desc: str = "") -> None:
+    def _delete_experiment_idxs(self, experiment_idxs: Set[int], desc: str = "") -> None:
         gather_fn_kwargs = (
             {"url": f"{self.master_url}/api/v1/experiments/{idx}"} for idx in experiment_idxs
         )
@@ -240,40 +240,42 @@ class Workspace:
             self._gather(gather_fn=self._delete_async, gather_fn_kwargs=gather_fn_kwargs, desc=desc)
         )
 
-    def delete_all_experiments(self, *, projects_to_delete_from: Union[Sequence[str], str]) -> None:
+    def delete_all_experiments(
+        self, *, projects_to_delete_from: Union[Sequence[str], str], safe_mode: bool = True
+    ) -> None:
         """Deletes all Experiments from the specified Projects in the Workspace.  Must be called
-        twice to perform the deletion, as a safety measure."""
+        twice to perform the deletion when safe_mode == True."""
         idxs_to_delete_set = set(self._get_experiment_idxs(projects_to_delete_from))
-        if idxs_to_delete_set != self._idxs_to_delete_set:
+        if safe_mode and idxs_to_delete_set != self._idxs_to_delete_set:
             warnings.warn(
                 f"This will delete {len(idxs_to_delete_set)} experiments."
                 " Please run a second time to confirm deletion."
             )
             self._idxs_to_delete_set = idxs_to_delete_set
         else:
-            self.delete_experiment_idxs(self._idxs_to_delete_set, desc="Deleting all Experiments")
+            self._delete_experiment_idxs(idxs_to_delete_set, desc="Deleting all Experiments")
             self._idxs_to_delete_set = None
 
     def delete_experiments_with_unvalidated_trials(
-        self, *, projects_to_delete_from: Union[Sequence[str], str]
+        self, *, projects_to_delete_from: Union[Sequence[str], str], safe_mode: bool = True
     ) -> None:
         """Deletes all Experiments which contain unvalidated Trials from the specified Projects in
-        the Workspace.  Must be called twice to perform the deletion, as a safety measure.
+        the Workspace.  Must be called twice to perform the deletion when safe_mode == True.
         """
         idxs_to_delete_set = set()
         trials = self.get_all_trials(projects_to_delete_from)
         for trial in trials:
             if trial["latestValidation"] is None:
                 idxs_to_delete_set.add(trial["experimentId"])
-        if self._idxs_to_delete_set != idxs_to_delete_set:
+        if safe_mode and self._idxs_to_delete_set != idxs_to_delete_set:
             warnings.warn(
                 f"This will delete {len(idxs_to_delete_set)} experiments."
                 " Please run a second time to confirm deletion."
             )
             self._idxs_to_delete_set = idxs_to_delete_set
         else:
-            self.delete_experiment_idxs(
-                self._idxs_to_delete_set, desc="Deleting unvalidated Experiments"
+            self._delete_experiment_idxs(
+                idxs_to_delete_set, desc="Deleting unvalidated Experiments"
             )
             self._idxs_to_delete_set = None
 
