@@ -83,8 +83,6 @@ class ClassificationEnsemble(nn.Module):
             "naive_temp": NaiveTempStrategy,
             "naive_logits": NaiveLogitsStrategy,
             "naive_logits_temp": NaiveLogitsTempStrategy,
-            "naive_geometric": NaiveGeometricStrategy,
-            "naive_geometric_temp": NaiveGeometricTempStrategy,
             "most_confident": MostConfidentStrategy,
             "most_confident_temp": MostConfidentTempStrategy,
             "majority_vote": MajorityVoteStrategy,
@@ -588,42 +586,6 @@ class NaiveLogitsTempStrategy(Strategy):
     def pred(self, logits: torch.Tensor) -> torch.Tensor:
         ensemble_logits = (logits * self.ensemble.betas) @ self.ensemble.ensemble_weights
         ensemble_probs = ensemble_logits.softmax(dim=1)
-        return ensemble_probs
-
-
-class NaiveGeometricStrategy(Strategy):
-    """Take the geometric mean of the probabilities. See Sec. 2 of
-    https://arxiv.org/pdf/2005.00570.pdf
-    """
-
-    generates_probabilities = True
-    requires_training = False
-    requires_SGD = False
-
-    def build(self) -> None:
-        pass
-
-    def pred(self, logits: torch.Tensor) -> torch.Tensor:
-        model_probs = logits.softmax(dim=1)
-        model_probs_root = model_probs ** (1 / self.ensemble.num_models)
-        ensemble_probs = model_probs_root.prod(dim=-1)
-        return ensemble_probs
-
-
-class NaiveGeometricTempStrategy(Strategy):
-    """Take the geometric mean of the probabilities after calibrating the temperature."""
-
-    generates_probabilities = True
-    requires_training = True
-    requires_SGD = False
-
-    def build(self) -> None:
-        self.ensemble.calibrate_temperature()
-
-    def pred(self, logits: torch.Tensor) -> torch.Tensor:
-        model_probs = logits.softmax(dim=1)
-        model_probs_root = model_probs ** (1 / self.ensemble.num_models)
-        ensemble_probs = model_probs_root.prod(dim=-1)
         return ensemble_probs
 
 
