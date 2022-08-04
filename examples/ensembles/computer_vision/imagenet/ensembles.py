@@ -327,6 +327,7 @@ class ClassificationEnsemble(nn.Module):
         stop_threshold: float = 1e-4,
         max_steps_per_batch: int = 5,
         clip_magnitude: float = 0.1,
+        ewa_weight: float = 0.95,
     ) -> None:
         """Calibrates temperatures for all base models in the ensemble in parallel using Newton's
         method."""
@@ -358,8 +359,15 @@ class ClassificationEnsemble(nn.Module):
                         self.core_context.train.report_training_metrics(
                             steps_completed=self.trained_batches, metrics=beta_dict
                         )
-            # We use the mean of all betas across the history as the final beta value
-            self.betas = torch.stack(beta_history, dim=0).mean(dim=0)
+            # Use an exponential-weighted average of the final weights for each batch as the
+            # ultimate ensemble weights.
+            stacked_beta_history = torch.stack(beta_history, dim=-1)
+            history_len = stacked_beta_history.shape[-1]
+            ewa_weights = torch.tensor(
+                [ewa_weight ** n for n in reversed(range(history_len))], device=self.device
+            )
+            ewa_weights = ewa_weights / ewa_weights.sum()
+            self.betas = stacked_beta_history @ ewa_weights
             if self.core_context.preempt.should_preempt():
                 return
 
@@ -411,6 +419,7 @@ class ClassificationEnsemble(nn.Module):
         stop_threshold: float = 1e-4,
         max_steps_per_batch: int = 5,
         clip_magnitude: float = 0.1,
+        ewa_weight: float = 0.95,
     ) -> None:
         with torch.no_grad():
             ensemble_weight_history = [self.ensemble_weights.clone()]
@@ -450,8 +459,15 @@ class ClassificationEnsemble(nn.Module):
                         self.report_train_metrics(extra_train_log_metrics=ensemble_weight_dict)
                     self.reset_metrics()
                     ensemble_weight_history.append(self.ensemble_weights.clone())
-            # We use the mean of all weights across the history as the final weights
-            self.ensemble_weights = torch.stack(ensemble_weight_history, dim=0).mean(dim=0)
+            # Use an exponential-weighted average of the final weights for each batch as the
+            # ultimate ensemble weights.
+            stacked_ensemble_weight_history = torch.stack(ensemble_weight_history, dim=-1)
+            history_len = stacked_ensemble_weight_history.shape[-1]
+            ewa_weights = torch.tensor(
+                [ewa_weight ** n for n in reversed(range(history_len))], device=self.device
+            )
+            ewa_weights = ewa_weights / ewa_weights.sum()
+            self.ensemble_weights = stacked_ensemble_weight_history @ ewa_weights
             if self.core_context.preempt.should_preempt():
                 return
 
