@@ -35,8 +35,7 @@ class Workspace:
             self._create_workspace(workspace_name)
         self.workspace_idx = self._get_workspace_idx()
 
-        self._last_delete_called = ""
-        self._idxs_to_delete_set = set()
+        self._idxs_to_delete_set = None
 
     def _session(self) -> requests.Session:
         s = requests.Session()
@@ -244,17 +243,16 @@ class Workspace:
     def delete_all_experiments(self, *, projects_to_delete_from: Union[Sequence[str], str]) -> None:
         """Deletes all Experiments from the specified Projects in the Workspace.  Must be called
         twice to perform the deletion, as a safety measure."""
-        self._idxs_to_delete_set = set(self._get_experiment_idxs(projects_to_delete_from))
-        if self._last_delete_called != "delete_all_experiments":
+        idxs_to_delete_set = set(self._get_experiment_idxs(projects_to_delete_from))
+        if idxs_to_delete_set != self._idxs_to_delete_set:
             warnings.warn(
-                f"This will delete {len(self._idxs_to_delete_set)} experiments."
+                f"This will delete {len(idxs_to_delete_set)} experiments."
                 " Please run a second time to confirm deletion."
             )
-            self._last_delete_called = "delete_all_experiments"
+            self._idxs_to_delete_set = idxs_to_delete_set
         else:
-            self._last_delete_called = ""
             self.delete_experiment_idxs(self._idxs_to_delete_set, desc="Deleting all Experiments")
-            self._idxs_to_delete_set = set()
+            self._idxs_to_delete_set = None
 
     def delete_experiments_with_unvalidated_trials(
         self, *, projects_to_delete_from: Union[Sequence[str], str]
@@ -262,22 +260,22 @@ class Workspace:
         """Deletes all Experiments which contain unvalidated Trials from the specified Projects in
         the Workspace.  Must be called twice to perform the deletion, as a safety measure.
         """
-        if self._last_delete_called != "delete_experiments_with_unvalidated_trials":
-            trials = self.get_all_trials(projects_to_delete_from)
-            for trial in trials:
-                if trial["latestValidation"] is None:
-                    self._idxs_to_delete_set.add(trial["experimentId"])
+        idxs_to_delete_set = set()
+        trials = self.get_all_trials(projects_to_delete_from)
+        for trial in trials:
+            if trial["latestValidation"] is None:
+                idxs_to_delete_set.add(trial["experimentId"])
+        if self._idxs_to_delete_set != idxs_to_delete_set:
             warnings.warn(
-                f"This will delete {len(self._idxs_to_delete_set)} experiments."
+                f"This will delete {len(idxs_to_delete_set)} experiments."
                 " Please run a second time to confirm deletion."
             )
-            self._last_delete_called = "delete_experiments_with_unvalidated_trials"
+            self._idxs_to_delete_set = idxs_to_delete_set
         else:
-            self._last_delete_called = ""
             self.delete_experiment_idxs(
                 self._idxs_to_delete_set, desc="Deleting unvalidated Experiments"
             )
-            self._idxs_to_delete_set = set()
+            self._idxs_to_delete_set = None
 
     async def _gather(
         self, gather_fn: Callable, gather_fn_kwargs: List[Dict[str, Any]], desc: str = ""
