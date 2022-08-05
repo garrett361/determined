@@ -36,6 +36,7 @@ class Workspace:
         self.workspace_idx = self._get_workspace_idx()
 
         self._idxs_to_delete_set = None
+        self._project_trials_dict = {}
 
     def _session(self) -> requests.Session:
         s = requests.Session()
@@ -86,7 +87,7 @@ class Workspace:
         return workspace_idx
 
     def _get_project_idxs(
-        self, project_names: Optional[Union[Sequence[str], str]] = None
+        self, project_names: Optional[Union[Sequence[str], Set[str], str]] = None
     ) -> Set[int]:
         workspace_projects = self.get_all_projects()
         if project_names is None:
@@ -106,7 +107,7 @@ class Workspace:
         return project_idxs
 
     def _get_experiment_idxs(
-        self, project_names: Optional[Union[Sequence[str], str]] = None
+        self, project_names: Optional[Union[Sequence[str], Set[str], str]] = None
     ) -> List[int]:
         experiments = self.get_all_experiments(project_names)
         experiment_idxs = [e["id"] for e in experiments]
@@ -143,7 +144,7 @@ class Workspace:
                 s.post(url, json=project_dict)
 
     def get_all_experiments(
-        self, project_names: Optional[Union[Sequence[str], str]] = None
+        self, project_names: Optional[Union[Sequence[str], Set[str], str]] = None
     ) -> List[Dict[str, Any]]:
         """Returns a list detailing all Experiments in the Workspace. If
         project_names is specified, only Experiments in the specified Projects are returned.
@@ -165,50 +166,62 @@ class Workspace:
             experiments += p["experiments"]
         return experiments
 
-    def get_all_trial_ids(
-        self, project_names: Optional[Union[Sequence[str], str]] = None
-    ) -> List[int]:
-        """Returns a list of all IDs for Trials in the Workspace. If project_names is specified,
-        only Trials in the specified Projects are returned.
-        """
-        experiments = self.get_all_experiments(project_names=project_names)
-        trial_ids = []
-        for e in experiments:
-            trial_ids += e["trialIds"]
-        return trial_ids
-
     def get_all_trials(
-        self, project_names: Optional[Union[Sequence[str], str]] = None
+        self,
+        project_names: Optional[Union[Sequence[str], Set[str], str]] = None,
+        refresh: bool = False,
     ) -> List[Dict[str, Any]]:
         """Returns a list detailing all Trials in the Workspace. If
-        project_names is specified, only Trials in the specified Projects are returned.
+        project_names is specified, only Trials in the specified Projects are returned. First call
+        will download all relevant trial data and cache it. Subsequent calls will use the cached
+        results, unless refresh is True.
         """
-        experiments = self.get_all_experiments(project_names)
-        experiment_idxs = [exp["id"] for exp in experiments]
-        gather_fn_kwargs = [
-            {"url": f"{self.master_url}/api/v1/experiments/{idx}/trials"} for idx in experiment_idxs
-        ]
-        exp_trials = asyncio.run(
-            self._gather(
-                gather_fn=self._get_json_async,
-                gather_fn_kwargs=gather_fn_kwargs,
-                desc="Getting Trials",
-            )
-        )
         trials = []
-        for e in exp_trials:
-            trials += e["trials"]
+        if project_names is None:
+            project_names = {wp["name"] for wp in self.get_all_projects()}
+        if isinstance(project_names, str):
+            project_names = [project_names]
+        elif isinstance(project_names, Set):
+            project_names = list(project_names)
+        if not refresh:
+            for name in project_names:
+                if name in self._project_trials_dict:
+                    trials += self._project_trials_dict[name]
+            for name in self._project_trials_dict:
+                project_names.remove(name)
+        for name in project_names:
+            experiments = self.get_all_experiments(name)
+            experiment_idxs = [exp["id"] for exp in experiments]
+            gather_fn_kwargs = [
+                {"url": f"{self.master_url}/api/v1/experiments/{idx}/trials"}
+                for idx in experiment_idxs
+            ]
+            exp_trials = asyncio.run(
+                self._gather(
+                    gather_fn=self._get_json_async,
+                    gather_fn_kwargs=gather_fn_kwargs,
+                    desc=f"Getting Trials from Project {name}",
+                )
+            )
+            if not exp_trials:
+                self._project_trials_dict[name] = []
+            else:
+                for e in exp_trials:
+                    trials += e["trials"]
+                    self._project_trials_dict[name] = e["trials"]
         return trials
 
     def get_trial_latest_val_results_dict(
-        self, project_names: Optional[Union[Sequence[str], str]] = None
+        self,
+        project_names: Optional[Union[Sequence[str], Set[str], str]] = None,
+        refresh: bool = False,
     ) -> Dict[int, Dict[str, Any]]:
         """Returns a dict summarizing the latest validation for trial in the Workspace, indexed by
         trial ID.  If project_names is provided, only trials from those Projects will be returned,
         otherwise, all trials in the Workspace will be returned.
         """
         trial_results_dict = {}
-        trials = self.get_all_trials(project_names)
+        trials = self.get_all_trials(project_names, refresh)
 
         for trial in trials:
             if trial["latestValidation"] is None:
@@ -221,7 +234,7 @@ class Workspace:
         return trial_results_dict
 
     def get_trial_latest_val_results_df(
-        self, project_names: Optional[Union[Sequence[str], str]] = None
+        self, project_names: Optional[Union[Sequence[str], Set[str], str]] = None
     ) -> pd.DataFrame:
         """Returns a DataFrame summarizing the latest validation for trials in the Workspace,
         indexed by trial ID.  If project_names is provided, only trials from those Projects will be
@@ -258,14 +271,18 @@ class Workspace:
             self._idxs_to_delete_set = None
 
     def delete_experiments_with_unvalidated_trials(
-        self, *, projects_to_delete_from: Union[Sequence[str], str], safe_mode: bool = True
+        self,
+        *,
+        projects_to_delete_from: Union[Sequence[str], str],
+        safe_mode: bool = True,
+        refresh: bool = False,
     ) -> None:
         """Deletes all finished Experiments which contain unvalidated Trials from the specified
         Projects in the Workspace.  Must be called twice to perform the deletion when
         safe_mode == True.
         """
         idxs_to_delete_set = set()
-        trials = self.get_all_trials(projects_to_delete_from)
+        trials = self.get_all_trials(projects_to_delete_from, refresh)
         for trial in trials:
             if (
                 trial["state"] not in {"STATE_ACTIVE", "STATE_UNSPECIFIED"}
