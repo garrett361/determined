@@ -4,12 +4,13 @@ import determined as det
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torchvision.datasets as datasets
+import torchvision.transforms as T
+from attrdict import AttrDict
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from torchmetrics import Accuracy, MeanMetric
-import torchvision.datasets as datasets
-import torchvision.transforms as T
 
 
 class MNISTModel(nn.Module):
@@ -160,17 +161,20 @@ class Trainer:
         self.loss_metric.reset()
 
 
-def main(core_context) -> None:
-    model = MNISTModel()
+def main(core_context, hparams: AttrDict) -> None:
+    model = MNISTModel(**hparams.model)
     trainer = Trainer(core_context, model, batch_size=128, metric_agg_rate_batches=10)
-    trainer.train(10, 2)
+    trainer.train(epochs=1, val_freq=1)
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
+    info = det.get_cluster_info()
+    hparams = AttrDict(info.trial.hparams)
+
     try:
         distributed = det.core.DistributedContext.from_torch_distributed()
     except KeyError:
         distributed = None
     with det.core.init(distributed=distributed) as core_context:
-        main(core_context)
+        main(core_context, hparams)

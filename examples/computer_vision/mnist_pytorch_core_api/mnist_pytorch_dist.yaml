@@ -11,3 +11,9 @@ searcher:
     name: single
     max_length: 1
     metric: val_loss
+hyperparameters:
+    model:
+        n_filters1: 32
+        n_filters2: 32
+        dropout1: 0.25
+        dropout2: 0.5
