@@ -159,7 +159,7 @@ class Workspace:
             self._gather(
                 gather_fn=self._get_json_async,
                 gather_fn_kwargs=gather_fn_kwargs,
-                desc="Getting Experiments",
+                desc=f"Getting Experiments {'from' if project_names else ''} {project_names}",
             )
         )
         experiments = []
@@ -177,20 +177,18 @@ class Workspace:
         will download all relevant trial data and cache it. Subsequent calls will use the cached
         results, unless refresh is True.
         """
-        trials = []
         if project_names is None:
             project_names = {wp["name"] for wp in self.get_all_projects()}
         if isinstance(project_names, str):
-            project_names = [project_names]
-        elif isinstance(project_names, Set):
-            project_names = list(project_names)
-        if not refresh:
-            for name in project_names:
-                if name in self._project_trials_dict:
-                    trials += self._project_trials_dict[name]
-            for name in self._project_trials_dict:
-                project_names.remove(name)
-        for name in project_names:
+            project_names = {project_names}
+        elif isinstance(project_names, Sequence):
+            project_names = set(project_names)
+
+        if refresh:
+            self._project_trials_dict = defaultdict(list)
+
+        required_project_names = project_names - set(self._project_trials_dict.keys())
+        for name in required_project_names:
             experiments = self.get_all_experiments(name)
             experiment_idxs = [exp["id"] for exp in experiments]
             gather_fn_kwargs = [
@@ -208,8 +206,10 @@ class Workspace:
                 self._project_trials_dict[name] = []
             else:
                 for e in exp_trials:
-                    trials += e["trials"]
                     self._project_trials_dict[name] += e["trials"]
+        trials = []
+        for name in project_names:
+            trials += self._project_trials_dict[name]
         return trials
 
     def get_trial_latest_val_results_dict(
