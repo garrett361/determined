@@ -1,7 +1,8 @@
 import asyncio
 import json
-from typing import Any, Callable, Dict, List, Union, Sequence, Set, Optional
 import warnings
+from collections import defaultdict
+from typing import Any, Callable, Dict, List, Union, Sequence, Set, Optional
 
 import aiohttp
 import pandas as pd
@@ -36,7 +37,7 @@ class Workspace:
         self.workspace_idx = self._get_workspace_idx()
 
         self._idxs_to_delete_set = None
-        self._project_trials_dict = {}
+        self._project_trials_dict = defaultdict(list)
 
     def _session(self) -> requests.Session:
         s = requests.Session()
@@ -200,7 +201,7 @@ class Workspace:
                 self._gather(
                     gather_fn=self._get_json_async,
                     gather_fn_kwargs=gather_fn_kwargs,
-                    desc=f"Getting Trials from Project {name}",
+                    desc=f"Getting Trials from {name}",
                 )
             )
             if not exp_trials:
@@ -208,7 +209,7 @@ class Workspace:
             else:
                 for e in exp_trials:
                     trials += e["trials"]
-                    self._project_trials_dict[name] = e["trials"]
+                    self._project_trials_dict[name] += e["trials"]
         return trials
 
     def get_trial_latest_val_results_dict(
@@ -234,13 +235,15 @@ class Workspace:
         return trial_results_dict
 
     def get_trial_latest_val_results_df(
-        self, project_names: Optional[Union[Sequence[str], Set[str], str]] = None
+        self,
+        project_names: Optional[Union[Sequence[str], Set[str], str]] = None,
+        refresh: bool = False,
     ) -> pd.DataFrame:
         """Returns a DataFrame summarizing the latest validation for trials in the Workspace,
         indexed by trial ID.  If project_names is provided, only trials from those Projects will be
         returned, otherwise, all trials in the Workspace will be returned.
         """
-        trial_results_dict = self.get_trial_latest_val_results_dict(project_names)
+        trial_results_dict = self.get_trial_latest_val_results_dict(project_names, refresh)
         trial_results_df = pd.DataFrame.from_dict(trial_results_dict, orient="index")
         trial_results_df = trial_results_df[sorted(trial_results_df.columns)]
         return trial_results_df

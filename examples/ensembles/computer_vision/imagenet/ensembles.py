@@ -326,8 +326,8 @@ class ClassificationEnsemble(nn.Module):
         self,
         stop_threshold: float = 1e-4,
         max_steps_per_batch: int = 5,
-        clip_magnitude: float = 0.1,
-        ema_weight: float = 0.25,
+        clip_magnitude: float = 0.5,
+        ema_weight: float = 0.1,
     ) -> None:
         """Calibrates temperatures for all base models in the ensemble in parallel using Newton's
         method.  An exponential moving average is used for updating temperatures across batches.
@@ -413,8 +413,8 @@ class ClassificationEnsemble(nn.Module):
         initial_guess: Optional[torch.Tensor] = None,
         stop_threshold: float = 1e-4,
         max_steps_per_batch: int = 5,
-        clip_magnitude: float = 0.1,
-        ema_weight: float = 0.25,
+        clip_magnitude: float = 1.0,
+        ema_weight: float = 0.1,
     ) -> None:
         """Trains ensemble weights using conjugate gradient. An exponential moving average is used
         for updating temperatures across batches.
