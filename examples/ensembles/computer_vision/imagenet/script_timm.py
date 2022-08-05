@@ -5,6 +5,7 @@ import os
 import sys
 
 from determined.experimental import client
+import re
 import tqdm
 
 import timm_models
@@ -35,6 +36,7 @@ parser.add_argument("-w", "--workspace", type=str, default="Ensembling")
 parser.add_argument("-mn", "--model_names", nargs="+", type=str, default=[])
 # Hack: num_base_models will be read as a string, then converted to a list of integers by splitting
 # on spaces.  Allows this script to be used in conjunction with the run_all_experiments.sh script.
+# Also allows for parsing inputs of the form "2-8" as shorthand for "2 3 4 5 6 7 8".
 parser.add_argument("-nbm", "--num_base_models", type=str)
 parser.add_argument("-cpp", "--checkpoint_path_prefix", type=str, default="shared_fs/state_dicts/")
 parser.add_argument("-ne", "--num_ensembles", type=int, default=0)
@@ -51,8 +53,14 @@ parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-nsc", "--no_safety_check", action="store_true")
 args = parser.parse_args()
 
-# Continuation of above hack:
-args.num_base_models = [int(x) for x in args.num_base_models.split()]
+# Continuation of above num_base_models hack:
+num_base_models_pattern = "\d+.\d+"
+if re.search(num_base_models_pattern, args.num_base_models):
+    start = int(args.num_base_models.split("-")[0])
+    stop = int(args.num_base_models.split("-")[-1])
+    args.num_base_models = list(range(start, stop + 1))
+else:
+    args.num_base_models = [int(x) for x in args.num_base_models.split()]
 
 if args.model_names and (args.num_base_models or args.num_ensembles or args.model_criteria):
     raise ValueError(

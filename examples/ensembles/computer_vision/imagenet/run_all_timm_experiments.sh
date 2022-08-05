@@ -1,6 +1,6 @@
 #!/bin/bash
 read -p "Master URL: " MASTER_URL
-read -p "Number of base models to use (Default 2 3 4 5): " NUM_BASE_MODELS
+read -p "Number of base models to use (Default 2-5): " NUM_BASE_MODELS
 read -p "Number of Ensembles per strategy (Default 100): " NUM_ENSEMBLES
 read -p "Number of combinations for VBMC (Default 512): " NUM_COMBINATIONS
 read -p "Number of training epochs, when applicable (Default 1): " EPOCHS
@@ -11,7 +11,7 @@ read -p "Dataset name (Default imagenette2-160): " DATASET_NAME
 echo -e "\nThis will run all ensembling experiments with the following parameters:\n"
 
 echo "Master URL: $MASTER_URL"
-echo "Number of base models: ${NUM_BASE_MODELS:=2 3 4 5}"
+echo "Number of base models: ${NUM_BASE_MODELS:=2-5}"
 echo "Number of Ensembles per strategy: ${NUM_ENSEMBLES:=100}"
 echo "Number of combinations for VBMC: ${NUM_COMBINATIONS:=512}"
 echo "Number of training epochs for SGD training: ${EPOCHS:=1}"
