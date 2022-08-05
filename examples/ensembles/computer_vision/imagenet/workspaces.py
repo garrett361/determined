@@ -253,19 +253,24 @@ class Workspace:
             )
             self._idxs_to_delete_set = idxs_to_delete_set
         else:
+            print(f"Deleting{len(idxs_to_delete_set)} experiments.")
             self._delete_experiment_idxs(idxs_to_delete_set, desc="Deleting all Experiments")
             self._idxs_to_delete_set = None
 
     def delete_experiments_with_unvalidated_trials(
         self, *, projects_to_delete_from: Union[Sequence[str], str], safe_mode: bool = True
     ) -> None:
-        """Deletes all Experiments which contain unvalidated Trials from the specified Projects in
-        the Workspace.  Must be called twice to perform the deletion when safe_mode == True.
+        """Deletes all finished Experiments which contain unvalidated Trials from the specified
+        Projects in the Workspace.  Must be called twice to perform the deletion when
+        safe_mode == True.
         """
         idxs_to_delete_set = set()
         trials = self.get_all_trials(projects_to_delete_from)
         for trial in trials:
-            if trial["latestValidation"] is None:
+            if (
+                trial["state"] not in {"STATE_ACTIVE", "STATE_UNSPECIFIED"}
+                and trial["latestValidation"] is None
+            ):
                 idxs_to_delete_set.add(trial["experimentId"])
         if safe_mode and self._idxs_to_delete_set != idxs_to_delete_set:
             warnings.warn(
@@ -274,6 +279,7 @@ class Workspace:
             )
             self._idxs_to_delete_set = idxs_to_delete_set
         else:
+            print(f"Deleting{len(idxs_to_delete_set)} experiments.")
             self._delete_experiment_idxs(
                 idxs_to_delete_set, desc="Deleting unvalidated Experiments"
             )
