@@ -327,10 +327,11 @@ class ClassificationEnsemble(nn.Module):
         stop_threshold: float = 1e-4,
         max_steps_per_batch: int = 5,
         clip_magnitude: float = 0.1,
-        ewa_weight: float = 0.95,
+        ema_weight: float = 0.25,
     ) -> None:
         """Calibrates temperatures for all base models in the ensemble in parallel using Newton's
-        method."""
+        method.  An exponential moving average is used for updating temperatures across batches.
+        """
         self.betas = torch.ones(self.num_models, device=self.device)
         with torch.no_grad():
             beta_history = [self.betas.clone()]
@@ -339,6 +340,7 @@ class ClassificationEnsemble(nn.Module):
                     split="train", desc=f"Calibrating Temperature (epoch {epoch_idx})"
                 ):
                     self.trained_batches += 1
+                    initial_beta = self.betas.clone()
                     for step_idx in range(max_steps_per_batch):
                         score = self(inputs)
                         probs = (self.betas * score).softmax(dim=1)
@@ -353,21 +355,14 @@ class ClassificationEnsemble(nn.Module):
                         # Clamp to help prevent runaways due to noise
                         delta_beta = delta_beta.clamp(min=-clip_magnitude, max=clip_magnitude)
                         self.betas += delta_beta
+                    # Update temperature with an exponential moving average.
+                    self.betas = (1 - ema_weight) * initial_beta + ema_weight * self.betas
                     beta_history.append(self.betas.clone())
                     beta_dict = {f"beta_{idx}": b.item() for idx, b in enumerate(self.betas)}
                     if self.is_chief:
                         self.core_context.train.report_training_metrics(
                             steps_completed=self.trained_batches, metrics=beta_dict
                         )
-            # Use an exponential-weighted average of the final weights for each batch as the
-            # ultimate ensemble weights.
-            stacked_beta_history = torch.stack(beta_history, dim=-1)
-            history_len = stacked_beta_history.shape[-1]
-            ewa_weights = torch.tensor(
-                [ewa_weight ** n for n in reversed(range(history_len))], device=self.device
-            )
-            ewa_weights = ewa_weights / ewa_weights.sum()
-            self.betas = stacked_beta_history @ ewa_weights
             if self.core_context.preempt.should_preempt():
                 return
 
@@ -419,8 +414,11 @@ class ClassificationEnsemble(nn.Module):
         stop_threshold: float = 1e-4,
         max_steps_per_batch: int = 5,
         clip_magnitude: float = 0.1,
-        ewa_weight: float = 0.95,
+        ema_weight: float = 0.25,
     ) -> None:
+        """Trains ensemble weights using conjugate gradient. An exponential moving average is used
+        for updating temperatures across batches.
+        """
         with torch.no_grad():
             ensemble_weight_history = [self.ensemble_weights.clone()]
             for epoch_idx in range(self.epochs):
@@ -428,6 +426,7 @@ class ClassificationEnsemble(nn.Module):
                     split="train", desc=f"Conjugate Gradient Training (epoch {epoch_idx})"
                 ):
                     self.trained_batches += 1
+                    initial_ensemble_weights = self.ensemble_weights.clone()
                     for step_idx in range(max_steps_per_batch):
                         gradient, hessian = self._strategy.get_gradient_and_hessian(inputs, labels)
                         delta_ensemble_weights = self._conjugate_gradient(
@@ -449,6 +448,10 @@ class ClassificationEnsemble(nn.Module):
                             max=clip_magnitude,
                         )
                         self.ensemble_weights += delta_ensemble_weights
+                    # Update ensemble_weights with an exponential moving average.
+                    self.ensemble_weights = (
+                        1 - ema_weight
+                    ) * initial_ensemble_weights + ema_weight * self.ensemble_weights
                     preds = self.get_ensembled_preds_from_inputs(inputs)
                     self.update_metrics(preds, labels)
                     ensemble_weight_dict = {
@@ -459,15 +462,6 @@ class ClassificationEnsemble(nn.Module):
                         self.report_train_metrics(extra_train_log_metrics=ensemble_weight_dict)
                     self.reset_metrics()
                     ensemble_weight_history.append(self.ensemble_weights.clone())
-            # Use an exponential-weighted average of the final weights for each batch as the
-            # ultimate ensemble weights.
-            stacked_ensemble_weight_history = torch.stack(ensemble_weight_history, dim=-1)
-            history_len = stacked_ensemble_weight_history.shape[-1]
-            ewa_weights = torch.tensor(
-                [ewa_weight ** n for n in reversed(range(history_len))], device=self.device
-            )
-            ewa_weights = ewa_weights / ewa_weights.sum()
-            self.ensemble_weights = stacked_ensemble_weight_history @ ewa_weights
             if self.core_context.preempt.should_preempt():
                 return
 
@@ -507,7 +501,7 @@ class Strategy(abc.ABC):
         pass
 
     def get_gradient_and_hessian(
-        self, inputs: torch.Tensor, labels: torch.Tensor
+        self, inputs: List[torch.Tensor], labels: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Returns the relevant gradient and hessian. For use, e.g., with the conjugate gradient
         method.
@@ -715,7 +709,7 @@ class SuperLearnerProbsStrategy(Strategy):
         return ensemble_probs
 
     def get_gradient_and_hessian(
-        self, inputs: torch.Tensor, labels: torch.Tensor
+        self, inputs: List[torch.Tensor], labels: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         model_probs = self.ensemble(inputs).softmax(dim=-1)
         model_probs_star = model_probs[torch.arange(len(labels)), labels]
