@@ -253,7 +253,7 @@ class Workspace:
             )
             self._idxs_to_delete_set = idxs_to_delete_set
         else:
-            print(f"Deleting{len(idxs_to_delete_set)} experiments.")
+            print(f"Deleting {len(idxs_to_delete_set)} experiments.")
             self._delete_experiment_idxs(idxs_to_delete_set, desc="Deleting all Experiments")
             self._idxs_to_delete_set = None
 
@@ -279,7 +279,7 @@ class Workspace:
             )
             self._idxs_to_delete_set = idxs_to_delete_set
         else:
-            print(f"Deleting{len(idxs_to_delete_set)} experiments.")
+            print(f"Deleting {len(idxs_to_delete_set)} experiments.")
             self._delete_experiment_idxs(
                 idxs_to_delete_set, desc="Deleting unvalidated Experiments"
             )
