@@ -2,14 +2,13 @@ import abc
 from typing import List, Optional, Tuple
 
 import torch
-
-import ensembles
+import torch.nn as nn
 
 
 class Strategy(abc.ABC):
     def __init__(
         self,
-        ensemble: Optional[ensembles.ClassificationEnsemble] = None,
+        ensemble: Optional[nn.Module] = None,
     ) -> None:
         self.ensemble = ensemble
 
