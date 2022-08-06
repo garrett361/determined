@@ -3,6 +3,7 @@ import contextlib
 import math
 import os
 import sys
+from typing import Dict
 
 from determined.experimental import client
 import re
@@ -44,9 +45,9 @@ parser.add_argument("-ne", "--num_ensembles", type=int, default=0)
 parser.add_argument("-o", "--offset", type=int, default=0)
 parser.add_argument("-tb", "--train_batch_size", type=int, default=256)
 parser.add_argument("-vb", "--val_batch_size", type=int, default=256)
-parser.add_argument("-nc", "--num_combinations", type=int, default=None)
-parser.add_argument("-lr", "--learning-rate", type=float, default=None)
-parser.add_argument("-e", "--epochs", type=int, default=None)
+parser.add_argument("-nc", "--num_combinations", type=int, default=512)
+parser.add_argument("-lr", "--lr", type=float, default=0.001)
+parser.add_argument("-e", "--epochs", type=int, default=1)
 parser.add_argument("-sc", "--sanity_check", action="store_true")
 parser.add_argument("-ad", "--allow_duplicates", action="store_true")
 parser.add_argument("-du", "--delete_unvalidated", action="store_true")
@@ -96,7 +97,8 @@ existing_trials_df = workspace.get_trial_latest_val_results_df(project_names=pro
 with suppress_stdout():
     client.login(master=args.master, user=args.user, password=args.password)
 
-
+if args.ensemble_strategy == ["all"]:
+    args.ensemble_strategy = list(strategies.STRATEGY_DICT.keys())
 num_ensemble_strategies = len(args.ensemble_strategy)
 
 if args.num_ensembles != -1:
@@ -106,7 +108,7 @@ else:
     num_experiments = num_ensemble_strategies * sum(
         math.comb(base_model_collection_size, n) for n in args.num_base_models
     )
-num_experiments_per_strategy = num_experiments // num_ensemble_strategies
+
 
 # Safety check for accidentally running a lot of experiments.
 if not args.no_safety_check and num_experiments >= 100:
@@ -114,8 +116,23 @@ if not args.no_safety_check and num_experiments >= 100:
     if confirm != "yes":
         sys.exit("Cancelling experiment creation.")
 
+
+def get_strategy_specific_hp_dict(strategy: str, args: argparse.Namespace) -> Dict:
+    strategy_class = strategies.STRATEGY_DICT[strategy]()
+    hp_dict = {}
+    if strategy_class.requires_training:
+        hp_dict["epochs"] = args.epochs
+    if strategy_class.requires_sgd:
+        hp_dict["lr"] = args.lr
+    if "vbmc" in strategy:
+        hp_dict["num_combinations"]: args.num_combinations
+    return {}
+
+
+skipped_trials = 0
 for strategy in args.ensemble_strategy:
-    s_or_blank = "s" if num_experiments != 1 else ""
+    num_experiments_per_strategy = num_experiments // num_ensemble_strategies
+    s_or_blank = "s" if num_experiments_per_strategy != 1 else ""
     print(
         80 * "-",
         f"\nSubmitting {num_experiments_per_strategy} {strategy} ",
@@ -123,9 +140,6 @@ for strategy in args.ensemble_strategy:
         80 * "-",
         "\n",
     )
-
-skipped_trials = 0
-for strategy in args.ensemble_strategy:
     # Check if a Trial with the same strategy and model names already exists
     if existing_trials_df.empty:
         existing_strategy_trials_model_names = []
@@ -145,6 +159,20 @@ for strategy in args.ensemble_strategy:
             ]
             args.experiment_name = "_".join(name_components)
 
+        base_hps = {
+            "train_batch_size": args.train_batch_size,
+            "val_batch_size": args.val_batch_size,
+            "dataset_name": args.dataset_name,
+            "ensemble_strategy": strategy,
+            "model_criteria": args.model_criteria,
+            "sanity_check": args.sanity_check,
+            "num_base_models": num_base_models,
+            "checkpoint_path_prefix": args.checkpoint_path_prefix,
+            "model_names": {"type": "categorical", "vals": []},
+        }
+
+        strategy_hps = get_strategy_specific_hp_dict(strategy, args)
+
         config = {
             "entrypoint": "python -m determined.launch.torch_distributed -- python -m main_timm",
             "name": args.experiment_name,
@@ -155,20 +183,7 @@ for strategy in args.ensemble_strategy:
             "resources": {"slots_per_trial": 1},
             "searcher": {"name": "grid", "max_length": 1, "metric": "val_top1_acc"},
             "environment": {"environment_variables": ["OMP_NUM_THREADS=1"]},
-            "hyperparameters": {
-                "train_batch_size": args.train_batch_size,
-                "val_batch_size": args.val_batch_size,
-                "dataset_name": args.dataset_name,
-                "ensemble_strategy": strategy,
-                "model_criteria": args.model_criteria,
-                "sanity_check": args.sanity_check,
-                "num_combinations": args.num_combinations,
-                "num_base_models": num_base_models,
-                "checkpoint_path_prefix": args.checkpoint_path_prefix,
-                "lr": args.learning_rate,
-                "epochs": args.epochs,
-                "model_names": {"type": "categorical", "vals": []},
-            },
+            "hyperparameters": {**base_hps, **strategy_hps},
         }
 
         if args.model_names:
