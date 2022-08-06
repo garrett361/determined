@@ -2,7 +2,6 @@ import logging
 import random
 from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Tuple, Union
 
-import determined as det
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -15,8 +14,6 @@ from torch.utils.data.distributed import DistributedSampler
 
 import data
 import strategies
-
-logging.basicConfig(level=logging.DEBUG, format=det.LOG_FORMAT)
 
 MAX_EXP_ARG = 88.0
 
