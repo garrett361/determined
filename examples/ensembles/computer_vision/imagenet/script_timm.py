@@ -152,7 +152,7 @@ for strategy in args.ensemble_strategy:
             "max_restarts": 0,
             "reproducibility": {"experiment_seed": 42},
             "resources": {"slots_per_trial": 1},
-            "searcher": {"name": "single", "max_length": 1, "metric": "val_top1_acc"},
+            "searcher": {"name": "grid", "max_length": 1, "metric": "val_top1_acc"},
             "environment": {"environment_variables": ["OMP_NUM_THREADS=1"]},
             "hyperparameters": {
                 "train_batch_size": args.train_batch_size,
@@ -166,6 +166,7 @@ for strategy in args.ensemble_strategy:
                 "checkpoint_path_prefix": args.checkpoint_path_prefix,
                 "lr": args.learning_rate,
                 "epochs": args.epochs,
+                "model_names": {"type": "categorical", "vals": []},
             },
         }
 
@@ -189,6 +190,6 @@ for strategy in args.ensemble_strategy:
                 print(f"{model_names}/{strategy} Trial already exists in Project; skipping.")
                 print(f"{skipped_trials} total Trials skipped.")
                 continue
-            config["hyperparameters"]["model_names"] = list(model_names)
-            with suppress_stdout():
-                client.create_experiment(config=config, model_dir=".")
+            config["hyperparameters"]["model_names"]["vals"].append(list(model_names))
+        with suppress_stdout():
+            client.create_experiment(config=config, model_dir=".")

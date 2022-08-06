@@ -10,11 +10,12 @@ import timm_models
 
 def main(core_context, hparams: Dict[str, Any]) -> None:
     hparams = attrdict.AttrDict(hparams)
+    print("MODEL NAMES", hparams.model_names)
     models = timm_models.build_timm_models(
         model_names=hparams.model_names, checkpoint_path_prefix=hparams.checkpoint_path_prefix
     )
     transforms = data.build_timm_transforms(models=models)
-    trainer = ensembles.ClassificationEnsemble(
+    ensemble = ensembles.ClassificationEnsemble(
         core_context,
         models=models,
         transforms=transforms,
@@ -28,8 +29,8 @@ def main(core_context, hparams: Dict[str, Any]) -> None:
         lr=hparams.lr,
         epochs=hparams.epochs,
     )
-    trainer.build_ensemble()
-    trainer.validate_ensemble()
+    ensemble.build_ensemble()
+    ensemble.validate_ensemble()
 
 
 if __name__ == "__main__":
