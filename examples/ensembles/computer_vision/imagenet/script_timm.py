@@ -6,6 +6,7 @@ import sys
 from typing import Dict
 
 from determined.experimental import client
+import pandas as pd
 import re
 import tqdm
 
@@ -92,7 +93,12 @@ if args.delete_unvalidated:
     workspace.delete_experiments_with_unvalidated_trials(
         projects_to_delete_from=project_name, safe_mode=False
     )
-existing_trials_df = workspace.get_trial_latest_val_results_df(project_names=project_name)
+
+existing_trials_df = (
+    pd.DataFrame()
+    if args.allow_duplicates
+    else workspace.get_trial_latest_val_results_df(project_names=project_name)
+)
 
 with suppress_stdout():
     client.login(master=args.master, user=args.user, password=args.password)
@@ -126,7 +132,7 @@ def get_strategy_specific_hp_dict(strategy: str, args: argparse.Namespace) -> Di
         hp_dict["lr"] = args.lr
     if "vbmc" in strategy:
         hp_dict["num_combinations"]: args.num_combinations
-    return {}
+    return hp_dict
 
 
 skipped_trials = 0
@@ -168,11 +174,13 @@ for strategy in args.ensemble_strategy:
             "sanity_check": args.sanity_check,
             "num_base_models": num_base_models,
             "checkpoint_path_prefix": args.checkpoint_path_prefix,
+            "epochs": None,
+            "lr": None,
+            "num_combinations": None,
             "model_names": {"type": "categorical", "vals": []},
         }
 
         strategy_hps = get_strategy_specific_hp_dict(strategy, args)
-
         config = {
             "entrypoint": "python -m determined.launch.torch_distributed -- python -m main_timm",
             "name": args.experiment_name,
@@ -198,10 +206,7 @@ for strategy in args.ensemble_strategy:
         desc = f"{num_base_models} model{'s' if num_base_models != 1 else ''} {strategy} ensembles"
         for model_names in tqdm.tqdm(ensembles, desc=desc):
             # Skip if the model_names/strategy combination already exists
-            if (
-                not args.allow_duplicates
-                and set(model_names) in existing_strategy_trials_model_names
-            ):
+            if set(model_names) in existing_strategy_trials_model_names:
                 skipped_trials += 1
                 print(f"{model_names}/{strategy} Trial already exists in Project; skipping.")
                 print(f"{skipped_trials} total Trials skipped.")
