@@ -10,7 +10,6 @@ import timm_models
 
 def main(core_context, hparams: Dict[str, Any]) -> None:
     hparams = attrdict.AttrDict(hparams)
-    print("MODEL NAMES", hparams.model_names)
     models = timm_models.build_timm_models(
         model_names=hparams.model_names, checkpoint_path_prefix=hparams.checkpoint_path_prefix
     )

@@ -8,6 +8,7 @@ from determined.experimental import client
 import re
 import tqdm
 
+import strategies
 import timm_models
 import workspaces
 
