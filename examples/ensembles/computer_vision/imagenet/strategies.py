@@ -27,6 +27,11 @@ class Strategy(abc.ABC):
     def requires_sgd(self) -> bool:
         pass
 
+    @property
+    @abc.abstractmethod
+    def requires_bayesian(self) -> bool:
+        pass
+
     @abc.abstractmethod
     def build(self) -> None:
         """Performs all setup and training necessary for the strategy."""
@@ -59,7 +64,8 @@ class NaiveStrategy(Strategy):
 
     generates_probabilities = True
     requires_training = False
-    requires_sgd = False
+    requires_sgd = True
+    requires_bayesian = False
 
     def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
@@ -78,6 +84,7 @@ class NaiveTempStrategy(Strategy):
     generates_probabilities = True
     requires_training = True
     requires_sgd = False
+    requires_bayesian = False
 
     def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
@@ -95,6 +102,7 @@ class NaiveLogitsStrategy(Strategy):
     generates_probabilities = True
     requires_training = False
     requires_sgd = False
+    requires_bayesian = False
 
     def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
@@ -111,6 +119,7 @@ class NaiveLogitsTempStrategy(Strategy):
     generates_probabilities = True
     requires_training = True
     requires_sgd = False
+    requires_bayesian = False
 
     def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
@@ -128,6 +137,7 @@ class MostConfidentStrategy(Strategy):
     generates_probabilities = True
     requires_training = False
     requires_sgd = False
+    requires_bayesian = False
 
     def build(self) -> None:
         pass
@@ -147,6 +157,7 @@ class MostConfidentTempStrategy(Strategy):
     generates_probabilities = True
     requires_training = True
     requires_sgd = False
+    requires_bayesian = False
 
     def build(self) -> None:
         self.ensemble.calibrate_temperature()
@@ -166,6 +177,7 @@ class MajorityVoteStrategy(Strategy):
     generates_probabilities = False
     requires_training = False
     requires_sgd = False
+    requires_bayesian = False
 
     def build(self) -> None:
         pass
@@ -182,6 +194,7 @@ class VBMCStrategy(Strategy):
     generates_probabilities = True
     requires_training = True
     requires_sgd = False
+    requires_bayesian = True
 
     def build(self) -> None:
         # Generate num_combinations sets of model combinations.
@@ -208,6 +221,7 @@ class VBMCTempStrategy(Strategy):
     generates_probabilities = True
     requires_training = True
     requires_sgd = False
+    requires_bayesian = True
 
     def build(self) -> None:
         # Generate num_combinations sets of model combinations.
@@ -237,6 +251,7 @@ class SuperLearnerProbsStrategy(Strategy):
     generates_probabilities = True
     requires_training = True
     requires_sgd = False
+    requires_bayesian = False
 
     def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
@@ -309,6 +324,7 @@ class SuperLearnerLogitsStrategy(Strategy):
     generates_probabilities = True
     requires_training = True
     requires_sgd = False
+    requires_bayesian = False
 
     def build(self) -> None:
         self._initialize_uniform_ensemble_weights()
