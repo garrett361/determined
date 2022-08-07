@@ -32,7 +32,7 @@ parser.add_argument("-u", "--user", type=str, default="determined")
 parser.add_argument("-p", "--password", type=str, default="")
 parser.add_argument("-d", "--dataset_name", type=str, default="imagenette2-160")
 parser.add_argument("-es", "--ensemble_strategy", nargs="+", type=str, default=[])
-parser.add_argument("-mc", "--model_criteria", type=str, default="")
+parser.add_argument("-mc", "--model_criteria", type=str, default="small")
 parser.add_argument("-en", "--experiment_name", type=str, default="")
 parser.add_argument("-pn", "--project_name", type=str, default="")
 parser.add_argument("-w", "--workspace", type=str, default="Ensembling")
@@ -203,14 +203,19 @@ for strategy in args.ensemble_strategy:
                 num_ensembles=args.num_ensembles,
                 offset=args.offset,
             )
-        desc = f"{num_base_models} model{'s' if num_base_models != 1 else ''} {strategy} ensembles"
-        for model_names in tqdm.tqdm(ensembles, desc=desc):
+        for model_names in ensembles:
             # Skip if the model_names/strategy combination already exists
             if set(model_names) in existing_strategy_trials_model_names:
                 skipped_trials += 1
                 print(f"{model_names}/{strategy} Trial already exists in Project; skipping.")
                 print(f"{skipped_trials} total Trials skipped.")
-                continue
-            config["hyperparameters"]["model_names"]["vals"].append(list(model_names))
-        with suppress_stdout():
-            client.create_experiment(config=config, model_dir=".")
+            else:
+                config["hyperparameters"]["model_names"]["vals"].append(list(model_names))
+        # Hangs if a blank list is submitted:
+        if config["hyperparameters"]["model_names"]["vals"]:
+            print(
+                f"Submitting {len(config['hyperparameters']['model_names']['vals'])} "
+                f"{num_base_models} model {strategy} ensembles"
+            )
+            with suppress_stdout():
+                client.create_experiment(config=config, model_dir=".")
