@@ -2,7 +2,7 @@ import asyncio
 import json
 import warnings
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Union, Sequence, Set, Optional
+from typing import Any, Callable, Dict, Generator, List, Union, Sequence, Set, Optional
 
 import aiohttp
 import pandas as pd
@@ -191,10 +191,10 @@ class Workspace:
         for name in required_project_names:
             experiments = self.get_all_experiments(name)
             experiment_idxs = [exp["id"] for exp in experiments]
-            gather_fn_kwargs = [
+            gather_fn_kwargs = (
                 {"url": f"{self.master_url}/api/v1/experiments/{idx}/trials"}
                 for idx in experiment_idxs
-            ]
+            )
             exp_trials = asyncio.run(
                 self._gather(
                     gather_fn=self._get_json_async,
@@ -227,9 +227,12 @@ class Workspace:
         for trial in trials:
             if trial["latestValidation"] is None:
                 continue
-            trial_results = trial["latestValidation"]["metrics"]
-            trial_results["wall_clock_time"] = trial["wallClockTime"]
-            trial_results["experiment_id"] = trial["experimentId"]
+            trial_results = {
+                **trial["latestValidation"]["metrics"],
+                **trial["hparams"],
+                "wall_clock_time": trial["wallClockTime"],
+                "experiment_id": trial["experimentId"],
+            }
             idx = trial["id"]
             trial_results_dict[idx] = trial_results
         return trial_results_dict
@@ -306,7 +309,10 @@ class Workspace:
             self._idxs_to_delete_set = None
 
     async def _gather(
-        self, gather_fn: Callable, gather_fn_kwargs: List[Dict[str, Any]], desc: str = ""
+        self,
+        gather_fn: Callable,
+        gather_fn_kwargs: Generator[Dict[str, Any], None, None],
+        desc: str = "",
     ) -> List[Dict[str, Any]]:
         async with aiohttp.ClientSession(headers=self._headers) as session:
             output = await tqdm_asyncio.gather(

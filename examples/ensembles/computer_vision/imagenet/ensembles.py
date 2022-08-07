@@ -34,7 +34,6 @@ class ClassificationEnsemble(nn.Module):
         val_batch_size: int,
         dataset_name: str,
         ensemble_strategy: str,
-        extra_val_log_metrics: Dict[str, Any] = None,
         sanity_check: bool = False,
         num_combinations: Optional[int] = None,
         lr: Optional[float] = None,
@@ -52,7 +51,6 @@ class ClassificationEnsemble(nn.Module):
         self.val_batch_size = val_batch_size
         self.dataset_name = dataset_name
         self.ensemble_strategy = ensemble_strategy
-        self.extra_val_log_metrics = extra_val_log_metrics or {}
         self.sanity_check = sanity_check
         if self.sanity_check:
             logging.info(f"Running in sanity check mode!")
@@ -201,7 +199,7 @@ class ClassificationEnsemble(nn.Module):
                 probs = self.get_ensembled_preds_from_inputs(inputs)
                 self.update_metrics(probs, labels)
             if self.is_chief:
-                self.report_val_metrics()
+                self.report_metrics(split="val")
             self.reset_metrics()
         if self.core_context.preempt.should_preempt():
             return
@@ -228,43 +226,32 @@ class ClassificationEnsemble(nn.Module):
         if self.loss_metric is not None:
             self.loss_metric.reset()
 
-    def report_val_metrics(self) -> None:
-        computed_metrics = self.compute_metrics("val_")
-        conflicted_keys = set(self.extra_val_log_metrics) & set(computed_metrics)
+    def report_metrics(
+        self,
+        split: Literal["train", "val", "test"],
+        additional_metrics: Optional[Dict[str, Any]] = None,
+        compute_default_metrics: bool = True,
+    ) -> None:
+        assert split in {"train", "val", "test"}, 'split must be one of "train", "val", "test"'
+        additional_metrics = additional_metrics or {}
+        computed_metrics = {} if not compute_default_metrics else self.compute_metrics(split + "_")
+        conflicted_keys = set(additional_metrics) & set(computed_metrics)
         if conflicted_keys:
             raise ValueError(
-                f"extra_val_log_metrics/val_metrics conflicting keys: {conflicted_keys}"
+                f"additional_metrics/train_metrics conflicting keys: {conflicted_keys}"
             )
-        # Join with extra_val_log_metrics and remove any None-valued metrics with a
-        # warning (these would throw errors). Also include the weights and betas.
-        reported_metrics = {**self.extra_val_log_metrics, **computed_metrics}
-        if self.ensemble_weights is not None:
-            reported_metrics["ensemble_weights"] = [w.item() for w in self.ensemble_weights]
-        if self.betas is not None:
-            reported_metrics["betas"] = [b.item() for b in self.betas]
+        reported_metrics = {**additional_metrics, **computed_metrics}
+        # Remove any None-valued metrics with a warning (these would throw errors). Include other
+        # relevant data as needed.
         for key in list(reported_metrics):
             if reported_metrics[key] is None:
-                logging.warning(f"Removing val metric {key} whose value is None.")
+                logging.warning(f"Removing metric {key} whose value is None.")
                 reported_metrics.pop(key)
-
-        self.core_context.train.report_validation_metrics(
-            steps_completed=self.trained_batches, metrics=reported_metrics
-        )
-
-    def report_train_metrics(
-        self, extra_train_log_metrics: Optional[Dict[str, Any]] = None
-    ) -> None:
-        extra_train_log_metrics = extra_train_log_metrics or {}
-        computed_metrics = self.compute_metrics("train_")
-        conflicted_keys = set(extra_train_log_metrics) & set(computed_metrics)
-        if conflicted_keys:
-            raise ValueError(
-                f"extra_train_log_metrics/train_metrics conflicting keys: {conflicted_keys}"
-            )
-        reported_metrics = {**extra_train_log_metrics, **computed_metrics}
-        self.core_context.train.report_training_metrics(
-            steps_completed=self.trained_batches, metrics=reported_metrics
-        )
+        if split == "train":
+            report_fn = self.core_context.train.report_training_metrics
+        elif split in {"val", "test"}:
+            report_fn = self.core_context.train.report_validation_metrics
+        report_fn(steps_completed=self.trained_batches, metrics=reported_metrics)
 
     def train_vbmc(self) -> None:
         """Computes the posterior and resulting effective weights for the num_combination linear
@@ -296,13 +283,11 @@ class ClassificationEnsemble(nn.Module):
         if self.sanity_check:
             prob_sum_check = self.ensemble_weights.sum(dim=-1)
             torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
-        reported_metrics = {
+        metrics = {
             "posterior": [p.item() for p in posterior],
             "ensemble_weights": [w.item() for w in self.ensemble_weights],
         }
-        self.core_context.train.report_training_metrics(
-            steps_completed=self.trained_batches, metrics=reported_metrics
-        )
+        self.report_metrics(additional_metrics=metrics, compute_default_metrics=False)
         if self.core_context.preempt.should_preempt():
             return
 
@@ -344,8 +329,8 @@ class ClassificationEnsemble(nn.Module):
                     beta_history.append(self.betas.clone())
                     beta_dict = {f"beta_{idx}": b.item() for idx, b in enumerate(self.betas)}
                     if self.is_chief:
-                        self.core_context.train.report_training_metrics(
-                            steps_completed=self.trained_batches, metrics=beta_dict
+                        self.report_metrics(
+                            additional_metrics=beta_dict, compute_default_metrics=False
                         )
             if self.core_context.preempt.should_preempt():
                 return
@@ -443,7 +428,7 @@ class ClassificationEnsemble(nn.Module):
                         for idx, w in enumerate(self.ensemble_weights)
                     }
                     if self.is_chief:
-                        self.report_train_metrics(extra_train_log_metrics=ensemble_weight_dict)
+                        self.report_metrics(split="train", additional_metrics=ensemble_weight_dict)
                     self.reset_metrics()
                     ensemble_weight_history.append(self.ensemble_weights.clone())
             if self.core_context.preempt.should_preempt():

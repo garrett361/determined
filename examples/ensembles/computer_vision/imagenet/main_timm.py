@@ -22,7 +22,6 @@ def main(core_context, hparams: Dict[str, Any]) -> None:
         val_batch_size=hparams.val_batch_size,
         dataset_name=hparams.dataset_name,
         ensemble_strategy=hparams.ensemble_strategy,
-        extra_val_log_metrics=hparams,
         sanity_check=hparams.sanity_check,
         num_combinations=hparams.num_combinations,
         lr=hparams.lr,
