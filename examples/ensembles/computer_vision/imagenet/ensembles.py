@@ -72,8 +72,7 @@ class ClassificationEnsemble(nn.Module):
             dist.init_process_group("nccl")
             self.models = DDP(self.models, device_ids=[self.rank])
 
-        self._ensemble_strategies = strategies.STRATEGY_DICT
-        self._strategy = self._ensemble_strategies[self.ensemble_strategy](self)
+        self._strategy = strategies.STRATEGY_DICT[self.ensemble_strategy](self)
 
         if self._strategy.requires_training:
             logging.info(f"Building train_dataset")
