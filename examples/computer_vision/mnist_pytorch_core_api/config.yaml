@@ -1,12 +1,12 @@
 entrypoint:
     python -m determined.launch.torch_distributed
-    python -m mnist_pytorch_dist
+    python -m mnist_pytorch_core_api
 name: mnist_pytorch_dist
 workspace: Core API
 project: MNIST
 max_restarts: 0
 resources:
-    slots_per_trial: 2
+    slots_per_trial: 3
 searcher:
     name: single
     max_length: 1
@@ -17,3 +17,9 @@ hyperparameters:
         n_filters2: 32
         dropout1: 0.25
         dropout2: 0.5
+    trainer:
+        worker_train_batch_size: 128
+        worker_val_batch_size: 256
+        metric_agg_rate_batches: 10
+        epochs: 1
+        val_freq: 1
