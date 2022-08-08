@@ -177,7 +177,7 @@ for strategy in args.ensemble_strategy:
             "epochs": None,
             "lr": None,
             "num_combinations": None,
-            "model_names": {"type": "categorical", "vals": [["asdf"]]},
+            "model_names": {"type": "categorical", "vals": []},
         }
 
         strategy_hps = get_strategy_specific_hp_dict(strategy, args)
