@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torch.nn.functional as F
 import torchmetrics
 import tqdm
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -13,6 +14,7 @@ from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 
 import data
+import ensemble_metrics
 import strategies
 
 MAX_EXP_ARG = 88.0
@@ -92,7 +94,7 @@ class ClassificationEnsemble(nn.Module):
         self.val_loader = self.build_val_loader()
         self.test_loader = None
         self.trained_batches = 0
-        self._nll_criterion = nn.NLLLoss()
+        self._build_metrics()
 
         # The following attributes will be set by the ensemble's Strategy instance.
 
@@ -107,22 +109,6 @@ class ClassificationEnsemble(nn.Module):
         self.betas = None
         # Sometimes we need SGD
         self.optimizer = None
-
-        if self._strategy.generates_probabilities:
-            self.accuracy_metrics = {
-                f"top{k}_acc": torchmetrics.Accuracy(top_k=k) for k in range(1, 11)
-            }
-        else:
-            self.accuracy_metrics = {"top1_acc": torchmetrics.Accuracy()}
-
-        for met in self.accuracy_metrics.values():
-            met.to(self.device)
-
-        if self._strategy.generates_probabilities:
-            self.loss_metric = torchmetrics.MeanMetric()
-            self.loss_metric.to(self.device)
-        else:
-            self.loss_metric = None
 
     def _set_random_seeds(self) -> None:
         random.seed(self.random_seed)
@@ -165,60 +151,42 @@ class ClassificationEnsemble(nn.Module):
             labels = labels.to(self.device)
             yield inputs, labels, batch_idx
 
-    def build_ensemble(self) -> None:
-        logging.info("Building ensemble...")
-        self._strategy.build()
+    def _build_metrics(self) -> None:
+        # Create metrics for the various splits.  These all take in probs, labels pairs as args.
+        self.metrics = {"train": {}, "val": {}, "test": {}}
+        # Metrics for all
+        for split in self.metrics:
+            if self._strategy.generates_probabilities:
+                for k in range(1, 11):
+                    self.metrics[split][f"{split}_top{k}_acc"] = torchmetrics.Accuracy(top_k=k)
+                self.nll_loss_metric = ensemble_metrics.NLLMeanMetric()
+            else:
+                self.accuracy_metrics = {f"{split}_top1_acc": torchmetrics.Accuracy()}
+                self.nll_loss_metric = None
 
-    def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
-        """Returns logits for the models, stacked along the last dimension."""
-        model_logits = torch.stack(
-            [model(inpt) for model, inpt in zip(self.models, inputs)], dim=-1
-        )
-        return model_logits
+        for vals in self.metrics.values():
+            for metric in vals:
+                metric.to(self.device)
 
-    def get_ensembled_preds_from_inputs(self, inputs: List[torch.Tensor]) -> torch.Tensor:
-        """Returns predictions for the ensembled model."""
-        logits = self(inputs)
-        ensembled_preds = self._strategy.pred(logits)
-        if self._strategy.generates_probabilities and self.sanity_check:
-            prob_sum_check = ensembled_preds.sum(dim=1)
-            torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
-        return ensembled_preds
+    def update_metrics(
+        self, probs: torch.Tensor, labels: torch.Tensor, split: Literal["train", "val", "test"]
+    ) -> None:
+        for metric in self.metrics[split].values():
+            if metric is not None:
+                metric(probs, labels)
 
-    def validate_ensemble(self) -> None:
-        self.models.eval()
-        with torch.no_grad():
-            for inputs, labels, batch_idx in self.batch_generator(split="val", desc="Validating"):
-                labels = labels.to(self.device)
-                probs = self.get_ensembled_preds_from_inputs(inputs)
-                self.update_metrics(probs, labels)
-            if self.is_chief:
-                self.report_metrics(split="val")
-            self.reset_metrics()
-        if self.core_context.preempt.should_preempt():
-            return
-
-    def update_metrics(self, probs, labels) -> None:
-        for met in self.accuracy_metrics.values():
-            met(probs, labels)
-        if self.loss_metric is not None:
-            # NLLLoss expects log-probabilities
-            loss = self._nll_criterion(probs.log(), labels)
-            self.loss_metric(loss)
-
-    def compute_metrics(self, prefix: str = "") -> Dict[str, Any]:
+    def compute_metrics(self, split: Literal["train", "val", "test"]) -> Dict[str, Any]:
         computed_metrics = {
-            prefix + name: metric.compute().item() for name, metric in self.accuracy_metrics.items()
+            name: metric.compute().item()
+            for name, metric in self.metrics[split].items()
+            if metric is not None
         }
-        if self.loss_metric is not None:
-            computed_metrics[prefix + "loss"] = self.loss_metric.compute().item()
         return computed_metrics
 
-    def reset_metrics(self) -> None:
-        for met in self.accuracy_metrics.values():
-            met.reset()
-        if self.loss_metric is not None:
-            self.loss_metric.reset()
+    def reset_metrics(self, split: Literal["train", "val", "test"]) -> None:
+        for metric in self.metrics[split].values():
+            if metric is not None:
+                metric.reset()
 
     def report_metrics(
         self,
@@ -246,6 +214,39 @@ class ClassificationEnsemble(nn.Module):
         elif split in {"val", "test"}:
             report_fn = self.core_context.train.report_validation_metrics
         report_fn(steps_completed=self.trained_batches, metrics=reported_metrics)
+
+    def build_ensemble(self) -> None:
+        logging.info("Building ensemble...")
+        self._strategy.build()
+
+    def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
+        """Returns logits for the models, stacked along the last dimension."""
+        model_logits = torch.stack(
+            [model(inpt) for model, inpt in zip(self.models, inputs)], dim=-1
+        )
+        return model_logits
+
+    def get_ensembled_preds_from_inputs(self, inputs: List[torch.Tensor]) -> torch.Tensor:
+        """Returns predictions for the ensembled model."""
+        logits = self(inputs)
+        ensembled_preds = self._strategy.pred(logits)
+        if self._strategy.generates_probabilities and self.sanity_check:
+            prob_sum_check = ensembled_preds.sum(dim=1)
+            torch.testing.assert_close(prob_sum_check, torch.ones_like(prob_sum_check))
+        return ensembled_preds
+
+    def validate_ensemble(self) -> None:
+        self.models.eval()
+        with torch.no_grad():
+            for inputs, labels, batch_idx in self.batch_generator(split="val", desc="Validating"):
+                labels = labels.to(self.device)
+                probs = self.get_ensembled_preds_from_inputs(inputs)
+                self.update_metrics(probs, labels, split="val")
+            if self.is_chief:
+                self.report_metrics(split="val")
+            self.reset_metrics(split="val")
+        if self.core_context.preempt.should_preempt():
+            return
 
     def train_vbmc(self) -> None:
         """Computes the posterior and resulting effective weights for the num_combination linear
@@ -420,14 +421,14 @@ class ClassificationEnsemble(nn.Module):
                         1 - ema_weight
                     ) * initial_ensemble_weights + ema_weight * self.ensemble_weights
                     preds = self.get_ensembled_preds_from_inputs(inputs)
-                    self.update_metrics(preds, labels)
+                    self.update_metrics(preds, labels, split="train")
                     ensemble_weight_dict = {
                         f"ensemble_weight_{idx}": w.item()
                         for idx, w in enumerate(self.ensemble_weights)
                     }
                     if self.is_chief:
                         self.report_metrics(split="train", additional_metrics=ensemble_weight_dict)
-                    self.reset_metrics()
+                    self.reset_metrics(split="train")
                     ensemble_weight_history.append(self.ensemble_weights.clone())
             if self.core_context.preempt.should_preempt():
                 return
