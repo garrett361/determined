@@ -131,7 +131,7 @@ def get_strategy_specific_hp_dict(strategy: str, args: argparse.Namespace) -> Di
     if strategy_class.requires_sgd:
         hp_dict["lr"] = args.lr
     if strategy_class.requires_bayesian:
-        hp_dict["num_combinations"]: args.num_combinations
+        hp_dict["num_combinations"] = args.num_combinations
     return hp_dict
 
 
@@ -181,7 +181,6 @@ for strategy in args.ensemble_strategy:
         }
 
         strategy_hps = get_strategy_specific_hp_dict(strategy, args)
-
         config = {
             "entrypoint": "python -m determined.launch.torch_distributed -- python -m main_timm",
             "name": args.experiment_name,
