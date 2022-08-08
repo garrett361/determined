@@ -102,12 +102,6 @@ class ClassificationEnsemble(nn.Module):
 
         # Some strategies require training the ensemble weights
         self.ensemble_weights = None
-        if self._strategy.requires_sgd:
-            self.ensemble_weights = nn.Parameter(
-                torch.ones(len(self.models), device=self.device, requires_grad=True)
-            )
-            # We only train the ensemble weights:
-            self.optimizer = torch.optim.Adam([self.ensemble_weights], lr=self.lr)
         self._other_weights = None
         # Others need log-likelihoods at intermediate steps.
         self._log_likelihoods = None
@@ -287,7 +281,9 @@ class ClassificationEnsemble(nn.Module):
             "posterior": [p.item() for p in posterior],
             "ensemble_weights": [w.item() for w in self.ensemble_weights],
         }
-        self.report_metrics(additional_metrics=metrics, compute_default_metrics=False)
+        self.report_metrics(
+            split="train", additional_metrics=metrics, compute_default_metrics=False
+        )
         if self.core_context.preempt.should_preempt():
             return
 
@@ -330,7 +326,9 @@ class ClassificationEnsemble(nn.Module):
                     beta_dict = {f"beta_{idx}": b.item() for idx, b in enumerate(self.betas)}
                     if self.is_chief:
                         self.report_metrics(
-                            additional_metrics=beta_dict, compute_default_metrics=False
+                            split="train",
+                            additional_metrics=beta_dict,
+                            compute_default_metrics=False,
                         )
             if self.core_context.preempt.should_preempt():
                 return

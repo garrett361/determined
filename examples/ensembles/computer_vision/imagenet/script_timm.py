@@ -177,7 +177,7 @@ for strategy in args.ensemble_strategy:
             "epochs": None,
             "lr": None,
             "num_combinations": None,
-            "model_names": {"type": "categorical", "vals": []},
+            "model_names": {"type": "categorical", "vals": [["asdf"]]},
         }
 
         strategy_hps = get_strategy_specific_hp_dict(strategy, args)
@@ -215,7 +215,7 @@ for strategy in args.ensemble_strategy:
         if config["hyperparameters"]["model_names"]["vals"]:
             print(
                 f"Submitting {len(config['hyperparameters']['model_names']['vals'])} "
-                f"{num_base_models} model {strategy} ensembles"
+                f"{num_base_models}-model {strategy} ensembles"
             )
             with suppress_stdout():
                 client.create_experiment(config=config, model_dir=".")
