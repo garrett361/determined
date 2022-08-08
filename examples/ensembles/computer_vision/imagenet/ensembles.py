@@ -38,7 +38,6 @@ class ClassificationEnsemble(nn.Module):
         num_combinations: Optional[int] = None,
         lr: Optional[float] = None,
         epochs: Optional[int] = None,
-        aggregation_batches: Optional[int] = 4,
         random_seed: int = 42,
     ) -> None:
         super().__init__()
@@ -57,7 +56,6 @@ class ClassificationEnsemble(nn.Module):
         self.num_combinations = num_combinations
         self.lr = lr
         self.epochs = epochs
-        self.aggregation_batches = aggregation_batches
         self.random_seed = random_seed
 
         self.rank = core_context.distributed.rank
@@ -96,17 +94,19 @@ class ClassificationEnsemble(nn.Module):
         self.trained_batches = 0
         self._nll_criterion = nn.NLLLoss()
 
+        # The following attributes will be set by the ensemble's Strategy instance.
+
         # There can be multiple notions of weights for different ensemble strategies.  `weights`
         # are generally used to weight the final individual model probabilities or
         # logits, while _other_weights cover other forms of weights.
-
-        # Some strategies require training the ensemble weights
         self.ensemble_weights = None
         self._other_weights = None
         # Others need log-likelihoods at intermediate steps.
         self._log_likelihoods = None
         # Sometimes we calibrate using an inverse temperature.
         self.betas = None
+        # Sometimes we need SGD
+        self.optimizer = None
 
         if self._strategy.generates_probabilities:
             self.accuracy_metrics = {
