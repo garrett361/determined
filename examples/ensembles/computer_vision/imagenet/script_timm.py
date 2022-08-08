@@ -81,24 +81,6 @@ generate_names = args.experiment_name == ""
 workspace_name = args.workspace + ("_test" if args.test else "")
 # If a non-blank project_name is provided, use that project; otherwise use the dataset_name
 project_name = args.project_name or args.dataset_name
-workspace = workspaces.Workspace(
-    workspace_name=workspace_name,
-    master_url=args.master,
-    username=args.user,
-    password=args.password,
-    create_workspace=True,
-)
-workspace.create_project(project_name)
-if args.delete_unvalidated:
-    workspace.delete_experiments_with_unvalidated_trials(
-        projects_to_delete_from=project_name, safe_mode=False
-    )
-
-existing_trials_df = (
-    pd.DataFrame()
-    if args.allow_duplicates
-    else workspace.get_trial_latest_val_results_df(project_names=project_name)
-)
 
 with suppress_stdout():
     client.login(master=args.master, user=args.user, password=args.password)
@@ -121,6 +103,25 @@ if not args.no_safety_check and num_experiments >= 100:
     confirm = input(f"Submit {num_experiments} experiments? [yes/N]\n")
     if confirm != "yes":
         sys.exit("Cancelling experiment creation.")
+
+workspace = workspaces.Workspace(
+    workspace_name=workspace_name,
+    master_url=args.master,
+    username=args.user,
+    password=args.password,
+    create_workspace=True,
+)
+workspace.create_project(project_name)
+if args.delete_unvalidated:
+    workspace.delete_experiments_with_unvalidated_trials(
+        projects_to_delete_from=project_name, safe_mode=False
+    )
+
+existing_trials_df = (
+    pd.DataFrame()
+    if args.allow_duplicates
+    else workspace.get_trial_latest_val_results_df(project_names=project_name)
+)
 
 
 def get_strategy_specific_hp_dict(strategy: str, args: argparse.Namespace) -> Dict:
