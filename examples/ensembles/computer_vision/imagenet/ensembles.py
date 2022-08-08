@@ -152,41 +152,42 @@ class ClassificationEnsemble(nn.Module):
             yield inputs, labels, batch_idx
 
     def _build_metrics(self) -> None:
-        # Create metrics for the various splits.  These all take in probs, labels pairs as args.
+        # Create metrics for the various splits.  These all take in preds, labels pairs as args
+        # where preds are either probabilities or single predictions.
         self.metrics = {"train": {}, "val": {}, "test": {}}
         # Metrics for all
-        for split in self.metrics:
+        for split, met_dic in self.metrics.items():
             if self._strategy.generates_probabilities:
                 for k in range(1, 11):
-                    self.metrics[split][f"{split}_top{k}_acc"] = torchmetrics.Accuracy(top_k=k)
-                self.nll_loss_metric = ensemble_metrics.NLLMeanMetric()
+                    met_dic[f"{split}_top{k}_acc"] = torchmetrics.Accuracy(top_k=k)
+                met_dic[f"{split}_loss"] = ensemble_metrics.NLLMeanMetric()
+                met_dic[f"{split}_cal_error_l1"] = torchmetrics.CalibrationError(norm="l1")
+                met_dic[f"{split}_cal_error_l2"] = torchmetrics.CalibrationError(norm="l2")
+                met_dic[f"{split}_cal_error_max"] = torchmetrics.CalibrationError(norm="max")
             else:
-                self.accuracy_metrics = {f"{split}_top1_acc": torchmetrics.Accuracy()}
-                self.nll_loss_metric = None
+                met_dic[f"{split}_top1_acc"] = torchmetrics.Accuracy()
 
         for vals in self.metrics.values():
-            for metric in vals:
-                metric.to(self.device)
+            for metric in vals.values():
+                if metric is not None:
+                    metric.to(self.device)
 
     def update_metrics(
-        self, probs: torch.Tensor, labels: torch.Tensor, split: Literal["train", "val", "test"]
+        self, preds: torch.Tensor, labels: torch.Tensor, split: Literal["train", "val", "test"]
     ) -> None:
+        """The preds input is expected to either be probabilities or single predictions."""
         for metric in self.metrics[split].values():
-            if metric is not None:
-                metric(probs, labels)
+            metric.update(preds, labels)
 
     def compute_metrics(self, split: Literal["train", "val", "test"]) -> Dict[str, Any]:
         computed_metrics = {
-            name: metric.compute().item()
-            for name, metric in self.metrics[split].items()
-            if metric is not None
+            name: metric.compute().item() for name, metric in self.metrics[split].items()
         }
         return computed_metrics
 
     def reset_metrics(self, split: Literal["train", "val", "test"]) -> None:
         for metric in self.metrics[split].values():
-            if metric is not None:
-                metric.reset()
+            metric.reset()
 
     def report_metrics(
         self,
@@ -196,7 +197,7 @@ class ClassificationEnsemble(nn.Module):
     ) -> None:
         assert split in {"train", "val", "test"}, 'split must be one of "train", "val", "test"'
         additional_metrics = additional_metrics or {}
-        computed_metrics = {} if not compute_default_metrics else self.compute_metrics(split + "_")
+        computed_metrics = {} if not compute_default_metrics else self.compute_metrics(split)
         conflicted_keys = set(additional_metrics) & set(computed_metrics)
         if conflicted_keys:
             raise ValueError(
