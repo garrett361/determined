@@ -47,13 +47,20 @@ class EnsembleTransformer(nn.Module):
             ]
         )
 
-    def forward(self, logits: torch.Tensor) -> torch.Tensor:
-        mean_logits = logits.mean(dim=1)
+    def forward(self, ensemble_logits: torch.Tensor) -> torch.Tensor:
+        # ensemble_logits is expected to be a (B, C, M)-sized tensor
+        # with the three dimensions specifying the batch, class, and model
+        # respectively.  Transformers expect position to be at the 1-dimension
+        # and so we re-shape to (B, M, C) before passing through the transformer.
+
+        naive_ensemble_logits = ensemble_logits.mean(dim=-1)
+        reshaped_ensemble_logits = ensemble_logits.transpose(-2, -1)
         # Append class token to the start of the input
-        batch_size = logits.shape[0]
+        batch_size = ensemble_logits.shape[0]
         expanded_class_token = self.class_token.repeat(batch_size, 1, 1)
-        x = torch.cat([expanded_class_token, logits], dim=1)
+        x = torch.cat([expanded_class_token, reshaped_ensemble_logits], dim=1)
+
         for layer in self.layers:
             x = layer(x)
         output_class_token = x[:, 0]
-        return mean_logits + output_class_token
+        return naive_ensemble_logits + output_class_token
