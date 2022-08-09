@@ -6,7 +6,7 @@ workspace: Core API
 project: MNIST
 max_restarts: 0
 resources:
-    slots_per_trial: 3
+    slots_per_trial: 1
 searcher:
     name: single
     max_length: 1
@@ -18,8 +18,8 @@ hyperparameters:
         dropout1: 0.25
         dropout2: 0.5
     trainer:
-        worker_train_batch_size: 128
-        worker_val_batch_size: 256
+        worker_train_batch_size: 1024
+        worker_val_batch_size: 1024
         metric_agg_rate_batches: 10
         epochs: 1
         val_freq: 1

@@ -49,6 +49,7 @@ class Trainer:
     def __init__(
         self,
         core_context,
+        info,
         model: nn.Module,
         worker_train_batch_size: int,
         worker_val_batch_size: int,
@@ -64,6 +65,15 @@ class Trainer:
         self.metric_agg_rate_batches = metric_agg_rate_batches
         self.epochs = epochs
         self.val_freq = val_freq
+
+        if info.latest_checkpoint is None:
+            self.trained_batches = 0
+            self.trained_epochs = 0
+        else:
+            with core_context.checkpoint.restore_path(info.latest_checkpoint) as path:
+                print("CHECKPOINT PATH", path)
+                self.trained_batches = 0
+                self.trained_epochs = 0
 
         self.rank = core_context.distributed.rank
         self.local_rank = core_context.distributed.local_rank
@@ -146,6 +156,7 @@ class Trainer:
                     steps_completed=self.trained_batches, metrics=computed_metrics
                 )
             self.reset_metrics()
+        self.checkpoint()
         if self.core_context.preempt.should_preempt():
             return
 
@@ -183,9 +194,10 @@ class Trainer:
         storage_id = str(uuid.uuid4())
         if self.is_chief:
             with storage_manager.store_path(storage_id) as path:
+                print(f"Saving model to {path}")
                 # Broadcast checkpoint path to all ranks.
                 self.core_context.distributed.broadcast((storage_id, path))
-                torch.save(self.model.state_dict(), path)
+                torch.save({"test": 0}, path)
                 # Gather resources across nodes.
                 all_resources = self.core_context.distributed.gather(
                     storage_manager._list_directory(path)
@@ -202,9 +214,9 @@ class Trainer:
                 storage_manager.post_store_path(storage_id, path)
 
 
-def main(core_context, hparams: AttrDict) -> None:
-    model = MNISTModel(**hparams.model)
-    trainer = Trainer(core_context, model, **hparams.trainer)
+def main(core_context, info, hparams: AttrDict, model_class: nn.Module = MNISTModel) -> None:
+    model = model_class(**hparams.model)
+    trainer = Trainer(core_context, info, model, **hparams.trainer)
     trainer.train()
 
 
@@ -218,4 +230,4 @@ if __name__ == "__main__":
     except KeyError:
         distributed = None
     with det.core.init(distributed=distributed) as core_context:
-        main(core_context, hparams)
+        main(core_context, info, hparams)
