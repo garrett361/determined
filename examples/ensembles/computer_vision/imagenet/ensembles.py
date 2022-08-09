@@ -16,8 +16,6 @@ import data
 import ensemble_metrics
 import strategies
 
-MAX_EXP_ARG = 88.0
-
 
 class ClassificationEnsemble(nn.Module):
     """
@@ -269,11 +267,8 @@ class ClassificationEnsemble(nn.Module):
                 self._log_likelihoods -= loss
                 self.trained_batches += 1
 
-            # Prevent overflow for the summed log-likelihoods
-            self._log_likelihoods -= self._log_likelihoods.mean()
-            overflow_diff = self._log_likelihoods.max() - MAX_EXP_ARG
-            if overflow_diff > 0:
-                self._log_likelihoods -= overflow_diff
+        # Transform back to probs with the Log-Sum-Exp trick for stability.
+        self._log_likelihoods -= self._log_likelihoods.max()
         posterior = self._log_likelihoods.softmax(dim=0)
         self.ensemble_weights = self._other_weights @ posterior
         if self.sanity_check:
