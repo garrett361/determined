@@ -17,9 +17,11 @@ hyperparameters:
         n_filters2: 32
         dropout1: 0.25
         dropout2: 0.5
+    optimizer:
+        lr: 0.001
     trainer:
         worker_train_batch_size: 1024
-        worker_val_batch_size: 1024
-        metric_agg_rate_batches: 10
-        epochs: 1
+        worker_val_batch_size: 2048
+        train_metric_agg_rate: 4
+        epochs: 5
         val_freq: 1
