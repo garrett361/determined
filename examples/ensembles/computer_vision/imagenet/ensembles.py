@@ -43,7 +43,7 @@ class ClassificationEnsemble(nn.Module):
     ) -> None:
         super().__init__()
         self.core_context = core_context
-        self.models = nn.ModuleList(models)
+        self.models = models
         self.transforms = transforms
         self.num_models = len(self.models)
         self.models.eval()

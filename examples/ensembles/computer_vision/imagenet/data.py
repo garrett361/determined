@@ -30,17 +30,20 @@ class MultiTransImageFolder:
         self,
         root: str,
         target_transform: Callable,
-        transforms: Union[Callable, Sequence[Callable]],
+        transforms: Optional[Union[Callable, Sequence[Callable]]] = None,
     ) -> None:
-        self.transforms = transforms if isinstance(transforms, Sequence) else [transforms]
+        self.transforms = transforms
         self.im_folder = ImageFolder(root=root, target_transform=target_transform)
 
     def __len__(self) -> int:
         return len(self.im_folder)
 
     def __getitem__(self, idx) -> Tuple[List[torch.Tensor], torch.Tensor]:
-        sample, target = self.im_folder[idx]
-        samples = [t(sample) for t in self.transforms]
+        samples, target = self.im_folder[idx]
+        if isinstance(self.transforms, Sequence):
+            samples = [t(samples) for t in self.transforms]
+        elif self.transforms is not None:
+            samples = self.transforms(samples)
         return samples, target
 
 
@@ -51,15 +54,13 @@ class SplitImageNetv2ImageFolder(ImageFolder):
         self,
         root: str,
         split: Literal["train", "val", "test"],
-        transforms: Union[Callable, Sequence[Callable]],
+        transforms: Optional[Union[Callable, Sequence[Callable]]] = None,
         split_pkl_path: str = SPLIT_PICKLE_PATH,
     ) -> None:
         super().__init__(root=root)
         with open(split_pkl_path, "rb") as f:
             self._split_mappings = pickle.load(f)
         self.idx_mapping = self._split_mappings[split]
-        if not isinstance(transforms, Sequence):
-            transforms = [transforms]
         self.transforms = transforms
 
     def __len__(self) -> int:
@@ -68,12 +69,15 @@ class SplitImageNetv2ImageFolder(ImageFolder):
     def __getitem__(self, idx: int) -> TorchData:
         index = self.idx_mapping[idx]
         path, target = self.samples[index]
-        img = self.loader(path)
-        transformed_imgs = [transform(img) for transform in self.transforms]
+        samples = self.loader(path)
+        if isinstance(self.transforms, Sequence):
+            samples = [t(samples) for t in self.transforms]
+        elif self.transforms is not None:
+            samples = self.transforms(samples)
         if self.target_transform is not None:
             target = self.target_transform(target)
 
-        return transformed_imgs, target
+        return samples, target
 
     def find_classes(self, directory: str) -> Tuple[List[str], Dict[str, int]]:
         classes = sorted(entry.name for entry in os.scandir(directory) if entry.is_dir())
