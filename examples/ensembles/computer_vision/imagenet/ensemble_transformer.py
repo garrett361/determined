@@ -1,3 +1,4 @@
+import random
 from typing import List
 
 import torch
@@ -68,6 +69,25 @@ class EnsembleTransformer(nn.Module):
         return naive_model_logits + output_class_token
 
 
+# Regularization classes
+class ModelMixer(nn.Module):
+    def __init__(self, models):
+        super().__init__()
+        self.model_dict = {idx: model for idx, model in enumerate(models)}
+
+    def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
+        # Expects inputs to be a list of tensors, one for each model in self.models with the
+        # expected model-specific transform applied
+        keys = self.model_dist.keys()
+        if self.training:
+            print(80 * "MIXING!")
+            keys = random.sample(keys, len(keys))
+        model_logits = torch.stack(
+            [self.model_dict[key](inpt) for key, inpt in zip(keys, inputs)], dim=-1
+        )
+        return model_logits
+
+
 class ModelEnsembleTransformer(nn.Module):
     def __init__(
         self,
@@ -84,11 +104,11 @@ class ModelEnsembleTransformer(nn.Module):
         # Don't use nn.ModuleList because we don't need to track the model params in the state_dict,
         # as they're all pre-trained. This also keeps all models in self.models in the .eval()
         # state, even if self.train() is called.
-        self.models = models
-        for model in self.models:
+        for model in models:
             for p in model.parameters():
                 p.requires_grad = False
             model.eval()
+        self.model_mixer = ModelMixer(models)
 
         self.ensemble_transformer = EnsembleTransformer(
             num_layers=num_layers,
@@ -101,8 +121,6 @@ class ModelEnsembleTransformer(nn.Module):
     def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
         # Expects inputs to be a list of tensors, one for each model in self.models with the
         # expected model-specific transform applied
-        model_logits = torch.stack(
-            [model(input) for model, input in zip(self.models, inputs)], dim=-1
-        )
+        model_logits = self.model_mixer(inputs)
         ensemble_logits = self.ensemble_transformer(model_logits)
         return ensemble_logits
