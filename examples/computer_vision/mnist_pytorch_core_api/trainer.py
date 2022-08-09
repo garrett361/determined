@@ -1,12 +1,11 @@
 import json
+from typing import Any, Dict, Generator, Tuple
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-import torchvision.datasets as datasets
-import torchvision.transforms as T
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
+from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from torchmetrics import Accuracy, MeanMetric
 
@@ -18,20 +17,20 @@ class Trainer:
         info,
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
+        train_dataset: Dataset,
+        val_dataset: Dataset,
         worker_train_batch_size: int,
         worker_val_batch_size: int,
         train_metric_agg_rate: int,
-        epochs: int,
-        val_freq: int,
     ) -> None:
         self.core_context = core_context
         self.model = model
         self.optimizer = optimizer
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
         self.worker_train_batch_size = worker_train_batch_size
         self.worker_val_batch_size = worker_val_batch_size
         self.train_metric_agg_rate = train_metric_agg_rate
-        self.epochs = epochs
-        self.val_freq = val_freq
 
         self.rank = core_context.distributed.rank
         self.local_rank = core_context.distributed.local_rank
@@ -44,13 +43,14 @@ class Trainer:
 
         if info.latest_checkpoint is None:
             self.trained_batches = 0
-            self.trained_epochs = 0
+            self.completed_epochs = 0
         else:
             with core_context.checkpoint.restore_path(info.latest_checkpoint) as path:
                 with open(path.joinpath("metadata.json"), "r") as f:
                     metadata_dict = json.load(f)
+                print("CHECKPOINT METADATA:", metadata_dict)
                 self.trained_batches = metadata_dict["trained_batches"]
-                self.trained_epochs = metadata_dict["trained_epochs"]
+                self.completed_epochs = metadata_dict["completed_epochs"]
                 model_state_dict = torch.load(path.joinpath("model_state_dict.pth"))
                 self.model.load_state_dict(model_state_dict)
                 optimizer_state_dict = torch.load(path.joinpath("optimizer_state_dict.pth"))
@@ -71,16 +71,8 @@ class Trainer:
         self.loss_metric.to(self.device)
 
     def build_data_loader(self, train: bool) -> DataLoader:
-        mnist_transform = T.Compose(
-            [
-                T.ToTensor(),
-                T.Normalize((0.1307,), (0.3081,)),
-            ]
-        )
+        dataset = self.train_dataset if train else self.val_dataset
         worker_batch_size = self.worker_train_batch_size if train else self.worker_val_batch_size
-        dataset = datasets.MNIST(
-            root="shared_fs/data", train=train, download=False, transform=mnist_transform
-        )
         if self.is_distributed:
             sampler = DistributedSampler(dataset, shuffle=True)
         else:
@@ -88,55 +80,69 @@ class Trainer:
         loader = DataLoader(dataset, batch_size=worker_batch_size, sampler=sampler, drop_last=True)
         return loader
 
+    def batch_generator(
+        self, train: bool
+    ) -> Generator[Tuple[int, torch.Tensor, torch.Tensor], None, None]:
+        loader = self.train_loader if train else self.val_loader
+        for batch_idx, batch in enumerate(loader):
+            inputs, labels = batch
+            inputs, labels = inputs.to(self.device), labels.to(self.device)
+            yield batch_idx, inputs, labels
+
     def train_one_epoch(self) -> None:
+        """Train the model for one epoch."""
         self.model.train()
-        for batch_idx, batch in enumerate(self.train_loader):
-            self.trained_batches += 1
-            images, labels = batch
-            images, labels = images.to(self.device), labels.to(self.device)
+        if self.is_chief:
+            print(80 * "*", f"Training: epoch {self.completed_epochs}", 80 * "*", sep="\n")
+        for batch_idx, inputs, labels in self.batch_generator(train=True):
             self.optimizer.zero_grad()
-            outputs = self.model(images)
+            outputs = self.model(inputs)
             loss = self.get_loss_and_update_metrics(outputs, labels)
             loss.backward()
             self.optimizer.step()
-            if (self.trained_batches + 1) % self.train_metric_agg_rate == 0:
+            self.trained_batches += 1
+            if self.trained_batches % self.train_metric_agg_rate == 0:
                 computed_metrics = self.compute_metrics("train_")
                 if self.is_chief:
                     self.core_context.train.report_training_metrics(
                         steps_completed=self.trained_batches, metrics=computed_metrics
                     )
                 self.reset_metrics()
-        self.trained_epochs += 1
 
-    def validate(self) -> None:
+    def validate(self) -> Dict[str, Any]:
+        "Evaluate the model on the validation set and return all validation metrics."
         self.model.eval()
+        if self.is_chief:
+            print(
+                80 * "*",
+                f"Validating: epoch {self.completed_epochs}",
+                80 * "*",
+                sep="\n",
+            )
         with torch.no_grad():
-            for batch_idx, batch in enumerate(self.val_loader):
-                images, labels = batch
-                images, labels = images.to(self.device), labels.to(self.device)
-                outputs = self.model(images)
+            for batch_idx, inputs, labels in self.batch_generator(train=False):
+                outputs = self.model(inputs)
                 self.get_loss_and_update_metrics(outputs, labels)
-                computed_metrics = self.compute_metrics("val_")
-                computed_metrics["test_list"] = list(range(10))
+            val_metrics = self.compute_metrics("val_")
             if self.is_chief:
-                print(80 * "=", "reporting val metrics", 80 * "=", sep="\n")
                 self.core_context.train.report_validation_metrics(
-                    steps_completed=self.trained_batches, metrics=computed_metrics
+                    steps_completed=self.trained_batches, metrics=val_metrics
                 )
             self.reset_metrics()
-        self.checkpoint()
+        return val_metrics
 
     def train(self) -> None:
-        for epoch_idx in range(self.trained_epochs, self.epochs):
-            if self.is_chief:
-                print(80 * "*", f"Training during epoch {epoch_idx}", 80 * "*", sep="\n")
-            self.train_one_epoch()
-            if (epoch_idx + 1) % self.val_freq == 0:
-                if self.is_chief:
-                    print(80 * "*", f"Validating during epoch {epoch_idx}", 80 * "*", sep="\n")
-                self.validate()
+        for op in self.core_context.searcher.operations():
+            while self.completed_epochs < op.length:
+                self.train_one_epoch()
+                val_metrics = self.validate()
+                # Update completed_epochs before checkpointing for accurate checkpoint metadata
+                self.completed_epochs += 1
+                self.checkpoint()
                 if self.core_context.preempt.should_preempt():
                     return
+            if self.is_chief:
+                op.report_completed(val_metrics["val_loss"])
 
     def get_loss_and_update_metrics(self, outputs, labels):
         loss = self.criterion(outputs, labels)
@@ -160,7 +166,7 @@ class Trainer:
     def checkpoint(self) -> None:
         if self.is_chief:
             checkpoint_metadata = {
-                "trained_epochs": self.trained_epochs,
+                "completed_epochs": self.completed_epochs,
                 "trained_batches": self.trained_batches,
                 "steps_completed": self.trained_batches,
             }

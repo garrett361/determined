@@ -5,15 +5,21 @@ import torch
 import torch.nn as nn
 from attrdict import AttrDict
 
+import data
 import models
 from trainer import Trainer
 
 
-def main(core_context, info, model_class: nn.Module = models.MNISTModel) -> None:
+def main(core_context, info) -> None:
     hparams = AttrDict(info.trial.hparams)
-    model = model_class(**hparams.model)
+    model = models.MNISTModel(**hparams.model)
     optimizer = torch.optim.Adam(model.parameters(), **hparams.optimizer)
-    trainer = Trainer(core_context, info, model, optimizer, **hparams.trainer)
+    train_dataset = data.get_mnist_dataset(train=True)
+    val_dataset = data.get_mnist_dataset(train=False)
+
+    trainer = Trainer(
+        core_context, info, model, optimizer, train_dataset, val_dataset, **hparams.trainer
+    )
     trainer.train()
 
 

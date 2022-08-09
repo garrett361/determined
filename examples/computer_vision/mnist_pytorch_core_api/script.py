@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from determined.experimental import client
 
 MASTER = "http://104.196.135.13:8080"
@@ -13,16 +14,15 @@ model_hparams = {
     "dropout2": 0.5,
 }
 
-optimizer_hparams = {"lr": 0.001}
+optimizer_hparams = {"lr": {"type": "categorical", "vals": list(10 ** -n for n in range(3, 6))}}
 
 trainer_hparams = {
     "worker_train_batch_size": 1024,
     "worker_val_batch_size": 2048,
     "train_metric_agg_rate": 8,
-    "epochs": 1,
-    "val_freq": 1,
 }
 
+# max_length is in epochs
 config = {
     "entrypoint": "python -m determined.launch.torch_distributed -- python3 main.py",
     "name": "mnist_pytorch_core_api",
@@ -31,7 +31,7 @@ config = {
     "max_restarts": 0,
     "reproducibility": {"experiment_seed": 42},
     "resources": {"slots_per_trial": 1},
-    "searcher": {"name": "single", "max_length": trainer_hparams["epochs"], "metric": "val_loss"},
+    "searcher": {"name": "grid", "max_length": 3, "metric": "val_loss"},
     "environment": {"environment_variables": ["OMP_NUM_THREADS=1"]},
     "hyperparameters": {
         "model": model_hparams,
