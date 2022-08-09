@@ -149,7 +149,7 @@ class Trainer:
                 if self.core_context.preempt.should_preempt():
                     return
             if self.is_chief:
-                op.report_completed(val_metrics["val_loss"])
+                op.report_completed(val_metrics["val_top1_acc"])
 
     def get_loss_and_update_metrics(self, outputs, labels):
         loss = self.criterion(outputs, labels)

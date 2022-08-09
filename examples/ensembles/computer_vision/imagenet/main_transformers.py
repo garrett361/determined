@@ -13,17 +13,19 @@ from trainer import Trainer
 def main(core_context, info) -> None:
     hparams = AttrDict(info.trial.hparams)
     model_names = timm_models.get_timm_ensembles_of_model_names(
-        model_criteria="small", num_base_models=2, num_ensembles=1
+        model_criteria=hparams.model.model_criteria,
+        num_base_models=hparams.model.num_base_models,
+        num_ensembles=1,
     )
     models = timm_models.build_timm_models(
-        model_names[0], checkpoint_path_prefix="shared_fs/state_dicts/"
+        model_names[0], checkpoint_path_prefix=hparams.model.checkpoint_path_prefix
     )
     transforms = data.build_timm_transforms(models=models)
 
     model = ensemble_transformer.ModelEnsembleTransformer(models=models)
     optimizer = torch.optim.Adam(model.parameters(), **hparams.optimizer)
-    train_dataset = data.get_dataset(split="train", name="imagenette2-160", transforms=transforms)
-    val_dataset = data.get_dataset(split="val", name="imagenette2-160", transforms=transforms)
+    train_dataset = data.get_dataset(split="train", name=hparams.data.name, transforms=transforms)
+    val_dataset = data.get_dataset(split="val", name=hparams.data.name, transforms=transforms)
 
     trainer = Trainer(
         core_context, info, model, optimizer, train_dataset, val_dataset, **hparams.trainer
