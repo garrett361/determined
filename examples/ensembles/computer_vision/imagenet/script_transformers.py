@@ -36,12 +36,13 @@ trainer_hparams = {
     "worker_val_batch_size": 256,
     "train_metric_agg_rate": 4,
     "max_len_unit": "epochs",  # TODO: doesn't do anything yet
+    "batches_per_epoch": None,
+    "records_per_epoch": None,
 }
 
 data_hparams = {
     "dataset_name": "imagenette2-160",
 }
-
 
 # max_length is in epochs
 max_epochs = 1

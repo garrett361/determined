@@ -1,6 +1,6 @@
 import logging
 import json
-from typing import Any, Dict, Generator, Literal, Tuple
+from typing import Any, Dict, Generator, Optional, Tuple
 
 
 import torch
@@ -85,10 +85,13 @@ class Trainer:
         return loader
 
     def batch_generator(
-        self, train: bool
+        self, train: bool, batches_per_epoch: Optional[int] = None
     ) -> Generator[Tuple[int, torch.Tensor, torch.Tensor], None, None]:
         loader = self.train_loader if train else self.val_loader
-        for batch_idx, batch in enumerate(loader):
+        if batches_per_epoch is None:
+            batches_per_epoch = len(loader)
+        assert batches_per_epoch <= len(loader), "batches_per_epoch exceeds batches in the loader."
+        for batch_idx, batch in zip(range(batches_per_epoch), loader):
             inputs, labels = batch
             labels = labels.to(self.device)
             if isinstance(inputs, list):

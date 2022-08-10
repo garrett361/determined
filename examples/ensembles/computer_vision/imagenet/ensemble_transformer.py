@@ -140,7 +140,7 @@ class TimmModelEnsembleTransformer(nn.Module):
         factory_kwargs = {"device": device, "dtype": dtype}
         # Don't use nn.ModuleList because we don't need to track the model params in the state_dict,
         # as they're all pre-trained. This also keeps all models in self.models in the .eval()
-        # state, even if self.train() is called.
+        # state, even if self.train() is called on their TimmModelEnsembleTransformer container.
         self.models = timm_models.build_timm_models(
             model_names=model_names, checkpoint_path_prefix=checkpoint_path_prefix, device=device
         )

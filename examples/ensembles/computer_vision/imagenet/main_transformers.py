@@ -12,11 +12,11 @@ from trainer import Trainer
 
 def main(core_context, info) -> None:
     hparams = AttrDict(info.trial.hparams)
-    transforms = data.build_timm_transforms(model_names=hparams.model.model_names)
-    # Some hacky code for getting the rank, which is needed to create the TimmModelEnsembleTransformer
-    # on the right device, since it must be instantiated at this time, in the current code. Clean.
+
     model_class = ensemble_transformer.TimmModelEnsembleTransformer
-    optimizer_class = torch.optim.Adam
+    optimizer_class = torch.optim.SGD
+
+    transforms = data.build_timm_transforms(model_names=hparams.model.model_names)
     train_dataset = data.get_dataset(
         split="train", name=hparams.data.dataset_name, transforms=transforms
     )

@@ -41,10 +41,9 @@ class ClassificationEnsemble(nn.Module):
     ) -> None:
         super().__init__()
         self.core_context = core_context
-        self.models = models
+        self.models = nn.ModuleList(models)
         self.transforms = transforms
         self.num_models = len(self.models)
-        self.models.eval()
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
         self.dataset_name = dataset_name
@@ -75,7 +74,7 @@ class ClassificationEnsemble(nn.Module):
         if self._strategy.requires_training:
             logging.info(f"Building train_dataset")
             self.train_dataset = data.get_dataset(
-                name=self.dataset_name, split="train", transforms=self.transforms
+                dataset_name=self.dataset_name, split="train", transforms=self.transforms
             )
             logging.info(f"{len(self.train_dataset)} records in train_dataset")
         else:
@@ -83,7 +82,7 @@ class ClassificationEnsemble(nn.Module):
             self.train_dataset = None
         logging.info(f"Building val_dataset")
         self.val_dataset = data.get_dataset(
-            name=self.dataset_name, split="val", transforms=self.transforms
+            dataset_name=self.dataset_name, split="val", transforms=self.transforms
         )
         logging.info(f"{len(self.val_dataset)} records in val_dataset")
         self.train_loader = self.build_train_loader()
@@ -233,9 +232,6 @@ class ClassificationEnsemble(nn.Module):
         return ensembled_preds
 
     def validate_ensemble(self) -> None:
-        self.models.eval()
-        if self.transformer is not None:
-            self.transformer.eval()
         with torch.no_grad():
             for inputs, labels, batch_idx in self.batch_generator(split="val", desc="Validating"):
                 labels = labels.to(self.device)
@@ -428,7 +424,3 @@ class ClassificationEnsemble(nn.Module):
                     ensemble_weight_history.append(self.ensemble_weights.clone())
             if self.core_context.preempt.should_preempt():
                 return
-
-    def train_transformer(self) -> None:
-        """Trains the ensemble transformer."""
-        pass

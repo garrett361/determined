@@ -13,7 +13,7 @@ def main(core_context, hparams: Dict[str, Any]) -> None:
     models = timm_models.build_timm_models(
         model_names=hparams.model_names, checkpoint_path_prefix=hparams.checkpoint_path_prefix
     )
-    transforms = data.build_timm_transforms(models=models)
+    transforms = data.build_timm_transforms(model_names=hparams.model_names)
     ensemble = ensembles.ClassificationEnsemble(
         core_context,
         models=models,
