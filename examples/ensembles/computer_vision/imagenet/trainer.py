@@ -31,7 +31,7 @@ class Trainer:
         self.is_distributed = self.size > 1
         self.is_chief = self.rank == 0
         self.is_local_chief = self.local_rank == 0
-        self.device = f"cuda:{self.rank}"
+        self.device = "cpu" if not self.is_distributed else f"cuda:{self.rank}"
 
         self.model = model_class(device=self.device, **hparams.model)
         self.optimizer = optimizer_class(self.model.parameters(), **hparams.optimizer)
