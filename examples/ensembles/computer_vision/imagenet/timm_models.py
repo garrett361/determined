@@ -1,7 +1,7 @@
 import itertools
 import math
 import random
-from typing import Literal, List
+from typing import Literal, List, Optional
 
 import pandas as pd
 import timm
@@ -63,7 +63,9 @@ def get_timm_ensembles_of_model_names(
     return ensembles[offset:]
 
 
-def build_timm_models(model_names: List[str], checkpoint_path_prefix: str) -> List[nn.Module]:
+def build_timm_models(
+    model_names: List[str], checkpoint_path_prefix: str, device: Optional[str] = None
+) -> List[nn.Module]:
     """Returns a list of models, each of which is a timm model."""
     models = []
     for name in model_names:
@@ -71,5 +73,6 @@ def build_timm_models(model_names: List[str], checkpoint_path_prefix: str) -> Li
         print(f"Building model {name}...")
         checkpoint_path = checkpoint_path_prefix + model_data.state_dict_path
         model = timm.create_model(name, checkpoint_path=checkpoint_path)
+        model.to(device)
         models.append(model)
     return models

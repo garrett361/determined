@@ -1,9 +1,12 @@
+import logging
 import json
-from typing import Any, Dict, Generator, Tuple
+from typing import Any, Dict, Generator, Literal, Tuple
+
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+from attrdict import AttrDict
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
@@ -15,23 +18,13 @@ class Trainer:
         self,
         core_context,
         info,
-        model: nn.Module,
-        optimizer: torch.optim.Optimizer,
+        model_class: nn.Module,
+        optimizer_class: torch.optim.Optimizer,
         train_dataset: Dataset,
         val_dataset: Dataset,
-        worker_train_batch_size: int,
-        worker_val_batch_size: int,
-        train_metric_agg_rate: int,
+        hparams: AttrDict[str, Any],
     ) -> None:
         self.core_context = core_context
-        self.model = model
-        self.optimizer = optimizer
-        self.train_dataset = train_dataset
-        self.val_dataset = val_dataset
-        self.worker_train_batch_size = worker_train_batch_size
-        self.worker_val_batch_size = worker_val_batch_size
-        self.train_metric_agg_rate = train_metric_agg_rate
-
         self.rank = core_context.distributed.rank
         self.local_rank = core_context.distributed.local_rank
         self.size = core_context.distributed.size
@@ -39,10 +32,15 @@ class Trainer:
         self.is_chief = self.rank == 0
         self.is_local_chief = self.local_rank == 0
         self.device = f"cuda:{self.rank}"
-        self.model.to(self.device)
-        # Hack for moving non-registered pre-trained models to the right device.
-        for model in self.model.models:
-            model.to(self.device)
+
+        self.model = model_class(device=self.device, **hparams.model)
+        self.optimizer = optimizer_class(**hparams.optimizer)
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
+        self.worker_train_batch_size = hparams.worker_train_batch_size
+        self.worker_val_batch_size = hparams.worker_val_batch_size
+        self.train_metric_agg_rate = hparams.train_metric_agg_rate
+        self.max_len_unit = hparams.max_len_unit
 
         if info.latest_checkpoint is None:
             self.trained_batches = 0
@@ -51,7 +49,6 @@ class Trainer:
             with core_context.checkpoint.restore_path(info.latest_checkpoint) as path:
                 with open(path.joinpath("metadata.json"), "r") as f:
                     metadata_dict = json.load(f)
-                print("CHECKPOINT METADATA:", metadata_dict)
                 self.trained_batches = metadata_dict["trained_batches"]
                 self.completed_epochs = metadata_dict["completed_epochs"]
                 model_state_dict = torch.load(path.joinpath("model_state_dict.pth"))
@@ -75,6 +72,10 @@ class Trainer:
 
     def build_data_loader(self, train: bool) -> DataLoader:
         dataset = self.train_dataset if train else self.val_dataset
+        if self.is_chief:
+            logging.info(
+                f"Building {'train' if train else 'val'} data loader. Records: {len(dataset)}"
+            )
         worker_batch_size = self.worker_train_batch_size if train else self.worker_val_batch_size
         if self.is_distributed:
             sampler = DistributedSampler(dataset, shuffle=True)

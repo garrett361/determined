@@ -104,6 +104,11 @@ class DatasetMetadata:
 
 
 DATASET_METADATA_BY_NAME = {
+    "imagenet": DatasetMetadata(
+        num_classes=1000,
+        root="shared_fs/data/imagenet",
+        dataset_class=MultiTransImageFolder,
+    ),
     "imagenetv2-matched-frequency": DatasetMetadata(
         num_classes=1000,
         root="shared_fs/data/imagenetv2-matched-frequency-format-val",
@@ -176,7 +181,9 @@ DATASET_METADATA_BY_NAME = {
 }
 
 
-def build_target_transform(path: str) -> Callable:
+def build_target_transform(path: Optional[str] = None) -> Union[Callable, None]:
+    if path is None:
+        return
     with open(path, "rb") as f:
         mapping = pickle.load(f)
     label_transform = lambda idx: mapping[idx]
@@ -204,11 +211,13 @@ def get_dataset(
     return dataset
 
 
-def build_timm_transforms(models: List[nn.Module]) -> List[Callable]:
-    """Returns a list of timm transforms from a list of timm models."""
+def build_timm_transforms(model_names: List[str]) -> List[Callable]:
+    """Returns a list of timm transforms from a list of timm model names."""
+    transform_keys = ("input_size", "crop_pct", "interpolation", "mean", "std")
     transforms = []
-    for model in models:
-        transform_kwargs = timm.data.resolve_data_config({}, model=model)
+    for name in model_names:
+        cfg = timm.models.get_pretrained_cfg(name)
+        transform_kwargs = {key: cfg[key] for key in transform_keys}
         transform = timm.data.create_transform(is_training=False, **transform_kwargs)
         transforms.append(transform)
     return transforms
