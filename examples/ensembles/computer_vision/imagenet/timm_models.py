@@ -7,8 +7,8 @@ import pandas as pd
 import timm
 import torch.nn as nn
 
-SMALL_TIMM_MODELS_DF = pd.read_feather("small_timm_models.feather").set_index("model")
-TOP_TIMM_MODELS_DF = pd.read_feather("top_timm_models.feather").set_index("model")
+SMALL_TIMM_MODELS_DF = pd.read_feather("models/small_timm_models.feather").set_index("model")
+TOP_TIMM_MODELS_DF = pd.read_feather("models/top_timm_models.feather").set_index("model")
 ALL_MODELS_DF = pd.concat([SMALL_TIMM_MODELS_DF, TOP_TIMM_MODELS_DF])
 
 model_criteria_map = {
