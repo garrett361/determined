@@ -1,13 +1,14 @@
 import dataclasses
-from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
 import os
+from inspect import signature
+from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
+
 
 import attrdict
 import pandas as pd
 import pickle
 import timm
 import torch
-import torch.nn as nn
 from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 
@@ -213,11 +214,11 @@ def get_dataset(
 
 def build_timm_transforms(model_names: List[str]) -> List[Callable]:
     """Returns a list of timm transforms from a list of timm model names."""
-    transform_keys = ("input_size", "crop_pct", "interpolation", "mean", "std")
+    transform_keys = [arg for arg in signature(timm.data.create_transform).parameters.keys()]
     transforms = []
     for name in model_names:
         cfg = timm.models.get_pretrained_cfg(name)
-        transform_kwargs = {key: cfg[key] for key in transform_keys}
+        transform_kwargs = {key: cfg[key] for key in transform_keys if key in cfg}
         transform = timm.data.create_transform(is_training=False, **transform_kwargs)
         transforms.append(transform)
     return transforms
