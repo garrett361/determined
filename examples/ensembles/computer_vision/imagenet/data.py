@@ -148,17 +148,13 @@ DATASET_METADATA_BY_NAME = {
         num_classes=20,
         root="shared_fs/data/imagewang-160",
         dataset_class=MultiTransImageFolder,
-        target_transform_paths={
-            split: "imagewang_to_imagenet_idx_map.pkl" for split in DATA_SPLITS
-        },
+        target_transform_paths=IMAGEWANG_IDX_MAP_DICT,
     ),
     "imagewang-320": DatasetMetadata(
         num_classes=20,
         root="shared_fs/data/imagewang-320",
         dataset_class=MultiTransImageFolder,
-        target_transform_paths={
-            split: "imagewang_to_imagenet_idx_map.pkl" for split in DATA_SPLITS
-        },
+        target_transform_paths=IMAGEWANG_IDX_MAP_DICT,
     ),
     "imagewoof2": DatasetMetadata(
         num_classes=10,
@@ -216,7 +212,7 @@ def get_dataset(
     dataset_metadata = DATASET_METADATA_BY_NAME[dataset_name].to_attrdict()
     if dataset_metadata.dataset_class == MultiTransImageFolder:
         root = dataset_metadata.root + "/" + split
-        target_transform = build_target_transform(dataset_metadata.target_transform_paths.split)
+        target_transform = build_target_transform(dataset_metadata.target_transform_paths[split])
         dataset = dataset_metadata.dataset_class(
             root=root, transforms=transforms, target_transform=target_transform
         )
