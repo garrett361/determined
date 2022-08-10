@@ -102,7 +102,7 @@ class Mixer(nn.Module):
             return inputs
         if action == "mix":
             dim_size = inputs.shape[self.dim]
-            self.mixed_idxs = torch.randperm(dim_size, **self.factory_kwargs)
+            self.mixed_idxs = torch.randperm(dim_size, device=self.factory_kwargs["device"])
             self.unmixed_idxs = self.mixed_idxs.topk(len(self.mixed_idxs), largest=False).indices
             outputs = inputs.index_select(dim=self.dim, index=self.mixed_idxs)
         elif action == "unmix":
@@ -133,6 +133,8 @@ class TimmModelEnsembleTransformer(nn.Module):
         class_dim: int = 1,
         device: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
+        *args,
+        **kwargs
     ) -> None:
         super().__init__()
         factory_kwargs = {"device": device, "dtype": dtype}

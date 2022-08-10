@@ -1,22 +1,33 @@
 #!/usr/bin/env python
 from determined.experimental import client
 
-MASTER = "http://34.148.22.184:8080"
+import timm_models
+
+MASTER = "http://104.196.135.13:8080"
 USER = "determined"
 PASSWORD = ""
 
 client.login(master=MASTER, user=USER, password=PASSWORD)
 
+MODEL_CRITERIA = "small"
+NUM_BASE_MODELS = 1
+
+model_names = timm_models.get_timm_ensembles_of_model_names(
+    model_criteria=MODEL_CRITERIA,
+    num_base_models=NUM_BASE_MODELS,
+    num_ensembles=1,
+)[0]
+
 model_hparams = {
     "checkpoint_path_prefix": "shared_fs/state_dicts/",
-    "num_base_models": 3,
-    "model_criteria": "small",
+    "model_names": model_names,
     "num_layers": 3,
     "num_heads": 4,
     "dim_feedforward": 2048,
     "mix_models": True,
     "mix_classes": True,
 }
+
 
 optimizer_hparams = {"lr": 0.001}
 

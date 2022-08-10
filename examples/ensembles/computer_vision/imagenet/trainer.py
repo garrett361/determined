@@ -22,7 +22,7 @@ class Trainer:
         optimizer_class: torch.optim.Optimizer,
         train_dataset: Dataset,
         val_dataset: Dataset,
-        hparams: AttrDict[str, Any],
+        hparams: AttrDict,
     ) -> None:
         self.core_context = core_context
         self.rank = core_context.distributed.rank
@@ -34,13 +34,13 @@ class Trainer:
         self.device = f"cuda:{self.rank}"
 
         self.model = model_class(device=self.device, **hparams.model)
-        self.optimizer = optimizer_class(**hparams.optimizer)
+        self.optimizer = optimizer_class(self.model.parameters(), **hparams.optimizer)
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
-        self.worker_train_batch_size = hparams.worker_train_batch_size
-        self.worker_val_batch_size = hparams.worker_val_batch_size
-        self.train_metric_agg_rate = hparams.train_metric_agg_rate
-        self.max_len_unit = hparams.max_len_unit
+        self.worker_train_batch_size = hparams.trainer.worker_train_batch_size
+        self.worker_val_batch_size = hparams.trainer.worker_val_batch_size
+        self.train_metric_agg_rate = hparams.trainer.train_metric_agg_rate
+        self.max_len_unit = hparams.trainer.max_len_unit
 
         if info.latest_checkpoint is None:
             self.trained_batches = 0
