@@ -1,15 +1,23 @@
 import random
-from typing import List
+from typing import List, Literal, Optional
 
 import torch
 import torch.nn as nn
 
+import timm_models
+
 
 class EnsembleTransformerLayer(nn.Module):
     def __init__(
-        self, d_model: int, num_heads: int, dim_feedforward: int, **factory_kwargs
+        self,
+        d_model: int,
+        num_heads: int,
+        dim_feedforward: int,
+        device: Optional[str] = None,
+        dtype: Optional[torch.dtype] = None,
     ) -> None:
         super().__init__()
+        factory_kwargs = {"device": device, "dtype": dtype}
         head_dim, remainder = divmod(d_model, num_heads)
         assert not remainder, "d_model must be divisible by num_heads"
         self.ln1 = nn.LayerNorm(d_model, **factory_kwargs)
@@ -37,12 +45,18 @@ class EnsembleTransformer(nn.Module):
         d_model: int = 1000,
         num_heads: int = 2,
         dim_feedforward: int = 2048,
-        device=None,
-        dtype=None,
+        init_transformer_scale: float = 0.1,
+        device: Optional[str] = None,
+        dtype: Optional[torch.dtype] = None,
     ) -> None:
         super().__init__()
         factory_kwargs = {"device": device, "dtype": dtype}
         self.class_token = nn.Parameter(torch.zeros(1, 1, d_model, **factory_kwargs))
+        # Initialize as scale parameter which initializes the balance between the naive and
+        # transformer outputs.
+        self.init_transformer_scale = nn.Parameter(
+            torch.tensor(init_transformer_scale, **factory_kwargs)
+        )
         self.layers = nn.ModuleList(
             [
                 EnsembleTransformerLayer(d_model, num_heads, dim_feedforward, **factory_kwargs)
@@ -66,49 +80,78 @@ class EnsembleTransformer(nn.Module):
         for layer in self.layers:
             x = layer(x)
         output_class_token = x[:, 0]
-        return naive_model_logits + output_class_token
+        return naive_model_logits + self.init_transformer_scale * output_class_token
 
 
-# Regularization classes
-class ModelMixer(nn.Module):
-    def __init__(self, models):
-        super().__init__()
-        self.model_dict = {idx: model for idx, model in enumerate(models)}
-
-    def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
-        # Expects inputs to be a list of tensors, one for each model in self.models with the
-        # expected model-specific transform applied
-        keys = self.model_dist.keys()
-        if self.training:
-            print(80 * "MIXING!")
-            keys = random.sample(keys, len(keys))
-        model_logits = torch.stack(
-            [self.model_dict[key](inpt) for key, inpt in zip(keys, inputs)], dim=-1
-        )
-        return model_logits
-
-
-class ModelEnsembleTransformer(nn.Module):
+class Mixer(nn.Module):
     def __init__(
         self,
-        models: List[nn.Module],
+        dim: int,
+        device: Optional[str] = None,
+        dtype: Optional[torch.dtype] = None,
+    ) -> None:
+        super().__init__()
+        self.factory_kwargs = {"device": device, "dtype": dtype}
+        self.dim = dim
+        self.mixed_idxs = None
+        self.unmixed_idxs = None
+        self.device = device
+
+    def forward(self, inputs: torch.Tensor, action: Literal["mix", "unmix"]) -> torch.Tensor:
+        if not self.training:
+            return inputs
+        if action == "mix":
+            dim_size = inputs.shape[self.dim]
+            self.mixed_idxs = torch.randperm(dim_size, **self.factory_kwargs)
+            self.unmixed_idxs = self.mixed_idxs.topk(len(self.mixed_idxs), largest=False).indices
+            outputs = inputs.index_select(dim=self.dim, index=self.mixed_idxs)
+        elif action == "unmix":
+            outputs = inputs.index_select(dim=self.dim, index=self.unmixed_idxs)
+        return outputs
+
+
+class ArgsKwargsIdentity(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, inputs: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        return inputs
+
+
+class TimmModelEnsembleTransformer(nn.Module):
+    def __init__(
+        self,
+        model_names: List[str],
+        checkpoint_path_prefix: str,
         num_layers: int = 2,
         d_model: int = 1000,
         num_heads: int = 2,
         dim_feedforward: int = 2048,
-        device=None,
-        dtype=None,
+        mix_models=False,
+        mix_classes=False,
+        model_dim: int = -1,
+        class_dim: int = 1,
+        device: Optional[str] = None,
+        dtype: Optional[torch.dtype] = None,
     ) -> None:
         super().__init__()
         factory_kwargs = {"device": device, "dtype": dtype}
         # Don't use nn.ModuleList because we don't need to track the model params in the state_dict,
         # as they're all pre-trained. This also keeps all models in self.models in the .eval()
         # state, even if self.train() is called.
-        for model in models:
+        self.models = timm_models.build_timm_models(
+            model_names=model_names, checkpoint_path_prefix=checkpoint_path_prefix, device=device
+        )
+        for model in self.models:
             for p in model.parameters():
                 p.requires_grad = False
             model.eval()
-        self.model_mixer = ModelMixer(models)
+        self.model_mixer = (
+            ArgsKwargsIdentity() if not mix_models else Mixer(dim=model_dim, **factory_kwargs)
+        )
+        self.class_mixer = (
+            ArgsKwargsIdentity() if not mix_classes else Mixer(dim=class_dim, **factory_kwargs)
+        )
 
         self.ensemble_transformer = EnsembleTransformer(
             num_layers=num_layers,
@@ -121,6 +164,11 @@ class ModelEnsembleTransformer(nn.Module):
     def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:
         # Expects inputs to be a list of tensors, one for each model in self.models with the
         # expected model-specific transform applied
-        model_logits = self.model_mixer(inputs)
+        model_logits = torch.stack(
+            [model(inpt) for model, inpt in zip(self.models, inputs)], dim=-1
+        )
+        model_logits = self.model_mixer(model_logits, action="mix")
+        model_logits = self.class_mixer(model_logits, action="mix")
         ensemble_logits = self.ensemble_transformer(model_logits)
+        ensemble_logits = self.class_mixer(ensemble_logits, action="unmix")
         return ensemble_logits

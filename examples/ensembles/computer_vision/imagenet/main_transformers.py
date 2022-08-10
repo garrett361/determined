@@ -16,19 +16,25 @@ def main(core_context, info) -> None:
         model_criteria=hparams.model.model_criteria,
         num_base_models=hparams.model.num_base_models,
         num_ensembles=1,
+    )[0]
+    transforms = data.build_timm_transforms(model_names=model_names)
+    # Some hacky code for getting the rank, which is needed to create the TimmModelEnsembleTransformer
+    # on the right device, since it must be instantiated at this time, in the current code. Clean.
+    rank = core_context.distributed.rank
+    device = f"cuda:{rank}"
+    model = ensemble_transformer.TimmModelEnsembleTransformer(
+        model_names=model_names,
+        checkpoint_path_prefix=hparams.model.checkpoint_path_prefix,
+        mix_models=hparams.model.mix_models,
+        mix_classes=hparams.model.mix_classes,
+        device=device,
     )
-    models = timm_models.build_timm_models(
-        model_names[0], checkpoint_path_prefix=hparams.model.checkpoint_path_prefix
-    )
-    transforms = data.build_timm_transforms(models=models)
-
-    model = ensemble_transformer.ModelEnsembleTransformer(models=models)
     optimizer = torch.optim.Adam(model.parameters(), **hparams.optimizer)
     train_dataset = data.get_dataset(split="train", name=hparams.data.name, transforms=transforms)
     val_dataset = data.get_dataset(split="val", name=hparams.data.name, transforms=transforms)
 
     trainer = Trainer(
-        core_context, info, model, optimizer, train_dataset, val_dataset, **hparams.trainer
+        core_context, info, model_class, optimizer_class, train_dataset, val_dataset, hparams
     )
     trainer.train()
 
