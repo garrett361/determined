@@ -39,7 +39,7 @@ trainer_hparams = {
 }
 
 data_hparams = {
-    "name": "imagenette2-160",
+    "dataset_name": "imagenette2-160",
 }
 
 

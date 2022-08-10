@@ -17,8 +17,12 @@ def main(core_context, info) -> None:
     # on the right device, since it must be instantiated at this time, in the current code. Clean.
     model_class = ensemble_transformer.TimmModelEnsembleTransformer
     optimizer_class = torch.optim.Adam
-    train_dataset = data.get_dataset(split="train", name=hparams.data.name, transforms=transforms)
-    val_dataset = data.get_dataset(split="val", name=hparams.data.name, transforms=transforms)
+    train_dataset = data.get_dataset(
+        split="train", name=hparams.data.dataset_name, transforms=transforms
+    )
+    val_dataset = data.get_dataset(
+        split="val", name=hparams.data.dataset_name, transforms=transforms
+    )
 
     trainer = Trainer(
         core_context, info, model_class, optimizer_class, train_dataset, val_dataset, hparams
