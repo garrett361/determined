@@ -191,11 +191,11 @@ def build_target_transform(path: Optional[str] = None) -> Union[Callable, None]:
 
 
 def get_dataset(
-    name: str,
+    dataset_name: str,
     split: Literal["train", "val", "test"],
     transforms: Union[Callable, List[Callable]] = None,
 ) -> Dataset:
-    dataset_metadata = DATASET_METADATA_BY_NAME[name].to_attrdict()
+    dataset_metadata = DATASET_METADATA_BY_NAME[dataset_name].to_attrdict()
     if dataset_metadata.dataset_class == MultiTransImageFolder:
         root = dataset_metadata.root + "/" + split
         target_transform = build_target_transform(dataset_metadata.target_transform_path)
