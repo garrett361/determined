@@ -12,16 +12,27 @@ import torch
 from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 
-SMALL_TIMM_MODELS_DF = pd.read_feather("small_timm_models.feather").set_index("model")
-TOP_TIMM_MODELS_DF = pd.read_feather("top_timm_models.feather").set_index("model")
+SMALL_TIMM_MODELS_DF = pd.read_feather("models/small_timm_models.feather").set_index("model")
+TOP_TIMM_MODELS_DF = pd.read_feather("models/top_timm_models.feather").set_index("model")
 ALL_MODELS_DF = pd.concat([SMALL_TIMM_MODELS_DF, TOP_TIMM_MODELS_DF])
 
 ImageStat = Union[Tuple[float], Tuple[float, float, float]]
 TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
 
 
-# Path to the train/val/test index splitting pkl file.
-SPLIT_PICKLE_PATH = "imagenetv2_train_val_test_idx_mappings.pkl"
+IMAGENETV2_SPLIT_PICKLE_PATH = "idx_maps/imagenetv2_train_val_test_idx_mappings.pkl"
+DATA_SPLITS = ("train", "val", "test")
+IMAGEWANG_IDX_MAP_DICT = {
+    "train": "idx_maps/imagewang_train_to_imagenet_idx_map.pkl",
+    "val": "idx_maps/imagewang_val_to_imagenet_idx_map.pkl",
+    "test": None,
+}
+IMAGEWOOF2_IDX_MAP_DICT = {
+    split: "idx_maps/imagewoof2_to_imagenet_idx_map.pkl" for split in DATA_SPLITS
+}
+IMAGENETTE2_IDX_MAP_DICT = {
+    split: "idx_maps/imagenette2_to_imagenet_idx_map.pkl" for split in DATA_SPLITS
+}
 
 
 class MultiTransImageFolder:
@@ -56,7 +67,7 @@ class SplitImageNetv2ImageFolder(ImageFolder):
         root: str,
         split: Literal["train", "val", "test"],
         transforms: Optional[Union[Callable, Sequence[Callable]]] = None,
-        split_pkl_path: str = SPLIT_PICKLE_PATH,
+        split_pkl_path: str = IMAGENETV2_SPLIT_PICKLE_PATH,
     ) -> None:
         super().__init__(root=root)
         with open(split_pkl_path, "rb") as f:
@@ -98,7 +109,9 @@ class DatasetMetadata:
     in_chans: int = 3
     mean: ImageStat = (0.485, 0.456, 0.406)
     std: ImageStat = (0.229, 0.224, 0.225)
-    target_transform_path: Optional[str] = None
+    target_transform_paths: Optional[Dict] = dataclasses.field(
+        default_factory=lambda: {split: None for split in DATA_SPLITS}
+    )
 
     def to_attrdict(self) -> Dict[str, Union[int, ImageStat]]:
         return attrdict.AttrDict(dataclasses.asdict(self))
@@ -129,55 +142,59 @@ DATASET_METADATA_BY_NAME = {
         num_classes=20,
         root="shared_fs/data/imagewang",
         dataset_class=MultiTransImageFolder,
-        target_transform_path="imagewang_to_imagenet_idx_map.pkl",
+        target_transform_paths=IMAGEWANG_IDX_MAP_DICT,
     ),
     "imagewang-160": DatasetMetadata(
         num_classes=20,
         root="shared_fs/data/imagewang-160",
         dataset_class=MultiTransImageFolder,
-        target_transform_path="imagewang_to_imagenet_idx_map.pkl",
+        target_transform_paths={
+            split: "imagewang_to_imagenet_idx_map.pkl" for split in DATA_SPLITS
+        },
     ),
     "imagewang-320": DatasetMetadata(
         num_classes=20,
         root="shared_fs/data/imagewang-320",
         dataset_class=MultiTransImageFolder,
-        target_transform_path="imagewang_to_imagenet_idx_map.pkl",
+        target_transform_paths={
+            split: "imagewang_to_imagenet_idx_map.pkl" for split in DATA_SPLITS
+        },
     ),
     "imagewoof2": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagewoof2",
         dataset_class=MultiTransImageFolder,
-        target_transform_path="imagewoof2_to_imagenet_idx_map.pkl",
+        target_transform_paths=IMAGEWOOF2_IDX_MAP_DICT,
     ),
     "imagewoof2-160": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagewoof2-160",
         dataset_class=MultiTransImageFolder,
-        target_transform_path="imagewoof2_to_imagenet_idx_map.pkl",
+        target_transform_paths=IMAGEWOOF2_IDX_MAP_DICT,
     ),
     "imagewoof2-320": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagewoof2-320",
         dataset_class=MultiTransImageFolder,
-        target_transform_path="imagewoof2_to_imagenet_idx_map.pkl",
+        target_transform_paths=IMAGEWOOF2_IDX_MAP_DICT,
     ),
     "imagenette2": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagenette2",
         dataset_class=MultiTransImageFolder,
-        target_transform_path="imagenette2_to_imagenet_idx_map.pkl",
+        target_transform_paths=IMAGENETTE2_IDX_MAP_DICT,
     ),
     "imagenette2-160": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagenette2-160",
         dataset_class=MultiTransImageFolder,
-        target_transform_path="imagenette2_to_imagenet_idx_map.pkl",
+        target_transform_paths=IMAGENETTE2_IDX_MAP_DICT,
     ),
     "imagenette2-320": DatasetMetadata(
         num_classes=10,
         root="shared_fs/data/imagenette2-320",
         dataset_class=MultiTransImageFolder,
-        target_transform_path="imagenette2_to_imagenet_idx_map.pkl",
+        target_transform_paths=IMAGENETTE2_IDX_MAP_DICT,
     ),
 }
 
@@ -199,7 +216,7 @@ def get_dataset(
     dataset_metadata = DATASET_METADATA_BY_NAME[dataset_name].to_attrdict()
     if dataset_metadata.dataset_class == MultiTransImageFolder:
         root = dataset_metadata.root + "/" + split
-        target_transform = build_target_transform(dataset_metadata.target_transform_path)
+        target_transform = build_target_transform(dataset_metadata.target_transform_paths.split)
         dataset = dataset_metadata.dataset_class(
             root=root, transforms=transforms, target_transform=target_transform
         )
