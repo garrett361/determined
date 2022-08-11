@@ -1,6 +1,9 @@
 import json
+import logging
 from typing import Any, Dict, Generator, Tuple
 
+import attrdict
+import determined as det
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -9,28 +12,41 @@ from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampl
 from torch.utils.data.distributed import DistributedSampler
 from torchmetrics import Accuracy, MeanMetric
 
+logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
+
 
 class Trainer:
     def __init__(
         self,
-        core_context,
-        info,
-        model: nn.Module,
-        optimizer: torch.optim.Optimizer,
+        model_class: nn.Module,
+        optimizer_class: torch.optim.Optimizer,
         train_dataset: Dataset,
         val_dataset: Dataset,
-        worker_train_batch_size: int,
-        worker_val_batch_size: int,
-        train_metric_agg_rate: int,
     ) -> None:
-        self.core_context = core_context
-        self.model = model
-        self.optimizer = optimizer
+
+        self.model_class = model_class
+        self.optimizer_class = optimizer_class
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
-        self.worker_train_batch_size = worker_train_batch_size
-        self.worker_val_batch_size = worker_val_batch_size
-        self.train_metric_agg_rate = train_metric_agg_rate
+
+        self.info = det.get_cluster_info()
+        # Maybe updated
+        self.trained_batches = 0
+        self.completed_epochs = 0
+
+        # Instantiated later
+        self.hparams = None
+        self.model = None
+        self.optimizer = None
+        self.rank = None
+        self.local_rank = None
+        self.size = None
+        self.is_distributed = None
+        self.is_chief = None
+        self.is_local_chief = None
+        self.device = None
+
+    def setup(self, core_context: det.core.Context) -> None:
 
         self.rank = core_context.distributed.rank
         self.local_rank = core_context.distributed.local_rank
@@ -39,13 +55,17 @@ class Trainer:
         self.is_chief = self.rank == 0
         self.is_local_chief = self.local_rank == 0
         self.device = "cpu" if not self.is_distributed else f"cuda:{self.rank}"
-        self.model.to(self.device)
 
-        if info.latest_checkpoint is None:
-            self.trained_batches = 0
-            self.completed_epochs = 0
-        else:
-            with core_context.checkpoint.restore_path(info.latest_checkpoint) as path:
+        self.hparams = self.get_hparams()
+        self.model = self.model_class(**self.hparams.model)
+        self.model.to(self.device)
+        self.optimizer = self.optimizer_class(self.model.parameters(), **self.hparams.optimizer)
+        if self.is_distributed:
+            dist.init_process_group("nccl")
+            self.model = DDP(self.model, device_ids=[self.rank])
+
+        if self.info.latest_checkpoint is not None:
+            with core_context.checkpoint.restore_path(self.info.latest_checkpoint) as path:
                 with open(path.joinpath("metadata.json"), "r") as f:
                     metadata_dict = json.load(f)
                 print("CHECKPOINT METADATA:", metadata_dict)
@@ -55,10 +75,6 @@ class Trainer:
                 self.model.load_state_dict(model_state_dict)
                 optimizer_state_dict = torch.load(path.joinpath("optimizer_state_dict.pth"))
                 self.optimizer.load_state_dict(optimizer_state_dict)
-
-        if self.is_distributed:
-            dist.init_process_group("nccl")
-            self.model = DDP(self.model, device_ids=[self.rank])
 
         self.train_loader = self.build_data_loader(train=True)
         self.val_loader = self.build_data_loader(train=False)
@@ -72,7 +88,11 @@ class Trainer:
 
     def build_data_loader(self, train: bool) -> DataLoader:
         dataset = self.train_dataset if train else self.val_dataset
-        worker_batch_size = self.worker_train_batch_size if train else self.worker_val_batch_size
+        worker_batch_size = (
+            self.hparams.trainer.worker_train_batch_size
+            if train
+            else self.hparams.trainer.worker_val_batch_size
+        )
         if self.is_distributed:
             sampler = DistributedSampler(dataset, shuffle=train)
         else:
@@ -89,7 +109,7 @@ class Trainer:
             inputs, labels = inputs.to(self.device), labels.to(self.device)
             yield batch_idx, inputs, labels
 
-    def train_one_epoch(self) -> None:
+    def train_one_epoch(self, core_context: det.core.Context) -> None:
         """Train the model for one epoch."""
         self.model.train()
         if self.is_chief:
@@ -101,15 +121,15 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
             self.trained_batches += 1
-            if self.trained_batches % self.train_metric_agg_rate == 0:
+            if self.trained_batches % self.hparams.trainer.train_metric_agg_rate == 0:
                 computed_metrics = self.compute_metrics("train_")
                 if self.is_chief:
-                    self.core_context.train.report_training_metrics(
+                    core_context.train.report_training_metrics(
                         steps_completed=self.trained_batches, metrics=computed_metrics
                     )
                 self.reset_metrics()
 
-    def validate(self) -> Dict[str, Any]:
+    def validate(self, core_context: det.core.Context) -> Dict[str, Any]:
         "Evaluate the model on the validation set and return all validation metrics."
         self.model.eval()
         if self.is_chief:
@@ -125,24 +145,26 @@ class Trainer:
                 self.get_loss_and_update_metrics(outputs, labels)
             val_metrics = self.compute_metrics("val_")
             if self.is_chief:
-                self.core_context.train.report_validation_metrics(
+                core_context.train.report_validation_metrics(
                     steps_completed=self.trained_batches, metrics=val_metrics
                 )
             self.reset_metrics()
         return val_metrics
 
-    def train(self) -> None:
-        for op in self.core_context.searcher.operations():
-            while self.completed_epochs < op.length:
-                self.train_one_epoch()
-                val_metrics = self.validate()
-                # Update completed_epochs before checkpointing for accurate checkpoint metadata
-                self.completed_epochs += 1
-                self.checkpoint()
-                if self.core_context.preempt.should_preempt():
-                    return
-            if self.is_chief:
-                op.report_completed(val_metrics["val_loss"])
+    def run(self) -> None:
+        with self.get_core_context() as core_context:
+            self.setup(core_context=core_context)
+            for op in core_context.searcher.operations():
+                while self.completed_epochs < op.length:
+                    self.train_one_epoch(core_context=core_context)
+                    val_metrics = self.validate(core_context=core_context)
+                    # Update completed_epochs before checkpointing for accurate checkpoint metadata
+                    self.completed_epochs += 1
+                    self.checkpoint(core_context=core_context)
+                    if core_context.preempt.should_preempt():
+                        return
+                if self.is_chief:
+                    op.report_completed(val_metrics["val_loss"])
 
     def get_loss_and_update_metrics(self, outputs, labels):
         loss = self.criterion(outputs, labels)
@@ -163,13 +185,25 @@ class Trainer:
             met.reset()
         self.loss_metric.reset()
 
-    def checkpoint(self) -> None:
+    def checkpoint(self, core_context: det.core.Context) -> None:
         if self.is_chief:
             checkpoint_metadata = {
                 "completed_epochs": self.completed_epochs,
                 "trained_batches": self.trained_batches,
                 "steps_completed": self.trained_batches,
             }
-            with self.core_context.checkpoint.store_path(checkpoint_metadata) as (path, storage_id):
+            with core_context.checkpoint.store_path(checkpoint_metadata) as (path, storage_id):
                 torch.save(self.model.state_dict(), path.joinpath("model_state_dict.pth"))
                 torch.save(self.optimizer.state_dict(), path.joinpath("optimizer_state_dict.pth"))
+
+    def get_hparams(self) -> attrdict.AttrDict:
+        hparams = attrdict.AttrDict(self.info.trial.hparams)
+        return hparams
+
+    def get_core_context(self) -> det.core.Context:
+        try:
+            distributed = det.core.DistributedContext.from_torch_distributed()
+        except KeyError:
+            distributed = None
+        core_context = det.core.init(distributed=distributed)
+        return core_context

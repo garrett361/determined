@@ -1,7 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from determined.experimental import client
 
-MASTER = "http://104.196.135.13:8080"
+MASTER = "http://127.0.0.1:8080"
 USER = "determined"
 PASSWORD = ""
 
@@ -14,7 +14,7 @@ model_hparams = {
     "dropout2": 0.5,
 }
 
-optimizer_hparams = {"lr": {"type": "categorical", "vals": list(10 ** -n for n in range(3, 6))}}
+optimizer_hparams = {"lr": 1e-3}
 
 trainer_hparams = {
     "worker_train_batch_size": 1024,
@@ -26,12 +26,10 @@ trainer_hparams = {
 config = {
     "entrypoint": "python -m determined.launch.torch_distributed -- python3 main.py",
     "name": "mnist_pytorch_core_api",
-    "workspace": "Core API",
-    "project": "MNIST",
     "max_restarts": 0,
     "reproducibility": {"experiment_seed": 42},
     "resources": {"slots_per_trial": 1},
-    "searcher": {"name": "grid", "max_length": 3, "metric": "val_loss"},
+    "searcher": {"name": "single", "max_length": 1, "metric": "val_loss"},
     "environment": {"environment_variables": ["OMP_NUM_THREADS=1"]},
     "hyperparameters": {
         "model": model_hparams,
