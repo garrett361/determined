@@ -23,15 +23,15 @@ model_names = timm_models.get_timm_ensembles_of_model_names(
 model_hparams = {
     "checkpoint_path_prefix": "shared_fs/state_dicts/",
     "model_names": model_names,
-    "num_layers": 2,
-    "num_heads": 4,
+    "num_layers": 1,
+    "num_heads": 2,
     "dim_feedforward": 1024,
     "mix_models": False,
     "mix_classes": False,
 }
 
 
-optimizer_hparams = {"lr": 5e-4}
+optimizer_hparams = {"lr": 2e-4}
 
 trainer_hparams = {
     "worker_train_batch_size": 256,
@@ -47,7 +47,7 @@ data_hparams = {
 }
 
 # max_length is in epochs
-max_epochs = 32
+max_epochs = 8
 
 searcher_config = {
     "name": "single",
