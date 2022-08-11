@@ -26,12 +26,12 @@ model_hparams = {
     "num_layers": 2,
     "num_heads": 4,
     "dim_feedforward": 1024,
-    "mix_models": True,
+    "mix_models": False,
     "mix_classes": False,
 }
 
 
-optimizer_hparams = {"lr": 0.001}
+optimizer_hparams = {"lr": 5e-4}
 
 trainer_hparams = {
     "worker_train_batch_size": 256,
@@ -47,7 +47,7 @@ data_hparams = {
 }
 
 # max_length is in epochs
-max_epochs = 3
+max_epochs = 32
 
 searcher_config = {
     "name": "single",

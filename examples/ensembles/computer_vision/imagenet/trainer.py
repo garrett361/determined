@@ -78,10 +78,10 @@ class Trainer:
             )
         worker_batch_size = self.worker_train_batch_size if train else self.worker_val_batch_size
         if self.is_distributed:
-            sampler = DistributedSampler(dataset, shuffle=True)
+            sampler = DistributedSampler(dataset, shuffle=train)
         else:
             sampler = RandomSampler(dataset) if train else SequentialSampler(dataset)
-        loader = DataLoader(dataset, batch_size=worker_batch_size, sampler=sampler, drop_last=True)
+        loader = DataLoader(dataset, batch_size=worker_batch_size, sampler=sampler, drop_last=train)
         return loader
 
     def batch_generator(

@@ -6,7 +6,6 @@ from attrdict import AttrDict
 
 import data
 import ensemble_transformer
-import timm_models
 from trainer import Trainer
 
 
@@ -14,7 +13,7 @@ def main(core_context, info) -> None:
     hparams = AttrDict(info.trial.hparams)
 
     model_class = ensemble_transformer.TimmModelEnsembleTransformer
-    optimizer_class = torch.optim.SGD
+    optimizer_class = torch.optim.Adam
 
     transforms = data.build_timm_transforms(model_names=hparams.model.model_names)
     train_dataset = data.get_dataset(

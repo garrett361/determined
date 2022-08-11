@@ -10,7 +10,7 @@ import timm_models
 class EnsembleTransformerLayer(nn.Module):
     def __init__(
         self,
-        d_model: int,
+        num_classes: int,
         num_heads: int,
         dim_feedforward: int,
         device: Optional[str] = None,
@@ -18,18 +18,18 @@ class EnsembleTransformerLayer(nn.Module):
     ) -> None:
         super().__init__()
         factory_kwargs = {"device": device, "dtype": dtype}
-        head_dim, remainder = divmod(d_model, num_heads)
-        assert not remainder, "d_model must be divisible by num_heads"
-        self.ln1 = nn.LayerNorm(d_model, **factory_kwargs)
+        head_dim, remainder = divmod(num_classes, num_heads)
+        assert not remainder, "num_classes must be divisible by num_heads"
+        self.ln1 = nn.LayerNorm(num_classes, **factory_kwargs)
         self.ma = nn.MultiheadAttention(
-            embed_dim=d_model, num_heads=num_heads, batch_first=True, **factory_kwargs
+            embed_dim=num_classes, num_heads=num_heads, batch_first=True, **factory_kwargs
         )
         self.ffn = nn.Sequential(
-            nn.Linear(d_model, dim_feedforward, **factory_kwargs),
+            nn.Linear(num_classes, dim_feedforward, **factory_kwargs),
             nn.ReLU(),
-            nn.Linear(dim_feedforward, d_model, **factory_kwargs),
+            nn.Linear(dim_feedforward, num_classes, **factory_kwargs),
         )
-        self.ln2 = nn.LayerNorm(d_model, **factory_kwargs)
+        self.ln2 = nn.LayerNorm(num_classes, **factory_kwargs)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         k = q = v = self.ln1(inputs)
@@ -42,7 +42,7 @@ class EnsembleTransformer(nn.Module):
     def __init__(
         self,
         num_layers: int = 1,
-        d_model: int = 1000,
+        num_classes: int = 1000,
         num_heads: int = 2,
         dim_feedforward: int = 2048,
         device: Optional[str] = None,
@@ -50,12 +50,12 @@ class EnsembleTransformer(nn.Module):
     ) -> None:
         super().__init__()
         factory_kwargs = {"device": device, "dtype": dtype}
-        self.class_token = nn.Parameter(torch.zeros(1, 1, d_model, **factory_kwargs))
+        self.class_token = nn.Parameter(torch.zeros(1, 1, num_classes, **factory_kwargs))
         # Initialize as scale parameter which initializes the balance between the naive and
         # transformer outputs.
         self.layers = nn.ModuleList(
             [
-                EnsembleTransformerLayer(d_model, num_heads, dim_feedforward, **factory_kwargs)
+                EnsembleTransformerLayer(num_classes, num_heads, dim_feedforward, **factory_kwargs)
                 for _ in range(num_layers)
             ]
         )
@@ -120,7 +120,7 @@ class TimmModelEnsembleTransformer(nn.Module):
         model_names: List[str],
         checkpoint_path_prefix: str,
         num_layers: int = 2,
-        d_model: int = 1000,
+        num_classes: int = 1000,
         num_heads: int = 2,
         dim_feedforward: int = 2048,
         mix_models=False,
@@ -153,7 +153,7 @@ class TimmModelEnsembleTransformer(nn.Module):
 
         self.ensemble_transformer = EnsembleTransformer(
             num_layers=num_layers,
-            d_model=d_model,
+            num_classes=num_classes,
             num_heads=num_heads,
             dim_feedforward=dim_feedforward,
             **factory_kwargs
