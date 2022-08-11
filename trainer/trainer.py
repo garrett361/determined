@@ -7,10 +7,10 @@ import determined as det
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torchmetrics
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
-from torchmetrics import Accuracy, MeanMetric
 
 logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
 
@@ -46,7 +46,7 @@ class Trainer:
         self.is_local_chief = None
         self.device = None
 
-    def setup(self, core_context: det.core.Context) -> None:
+    def _setup(self, core_context: det.core.Context) -> None:
 
         self.rank = core_context.distributed.rank
         self.local_rank = core_context.distributed.local_rank
@@ -64,27 +64,28 @@ class Trainer:
             dist.init_process_group("nccl")
             self.model = DDP(self.model, device_ids=[self.rank])
 
+        self._restore_latest_checkpoint(core_context=core_context)
+
+        self.train_loader = self.build_data_loader(train=True)
+        self.val_loader = self.build_data_loader(train=False)
+
+        self.accuracy_metrics = {f"top{k}_acc": torchmetrics.Accuracy(top_k=k) for k in range(1, 6)}
+        for met in self.accuracy_metrics.values():
+            met.to(self.device)
+        self.loss_metric = torchmetrics.MeanMetric()
+        self.loss_metric.to(self.device)
+
+    def _restore_latest_checkpoint(self, core_context: det.core.Context) -> None:
         if self.info.latest_checkpoint is not None:
             with core_context.checkpoint.restore_path(self.info.latest_checkpoint) as path:
                 with open(path.joinpath("metadata.json"), "r") as f:
                     metadata_dict = json.load(f)
-                print("CHECKPOINT METADATA:", metadata_dict)
                 self.trained_batches = metadata_dict["trained_batches"]
                 self.completed_epochs = metadata_dict["completed_epochs"]
                 model_state_dict = torch.load(path.joinpath("model_state_dict.pth"))
                 self.model.load_state_dict(model_state_dict)
                 optimizer_state_dict = torch.load(path.joinpath("optimizer_state_dict.pth"))
                 self.optimizer.load_state_dict(optimizer_state_dict)
-
-        self.train_loader = self.build_data_loader(train=True)
-        self.val_loader = self.build_data_loader(train=False)
-        self.criterion = nn.CrossEntropyLoss()
-
-        self.accuracy_metrics = {f"top{k}_acc": Accuracy(top_k=k) for k in range(1, 6)}
-        for met in self.accuracy_metrics.values():
-            met.to(self.device)
-        self.loss_metric = MeanMetric()
-        self.loss_metric.to(self.device)
 
     def build_data_loader(self, train: bool) -> DataLoader:
         dataset = self.train_dataset if train else self.val_dataset
@@ -153,7 +154,7 @@ class Trainer:
 
     def run(self) -> None:
         with self.get_core_context() as core_context:
-            self.setup(core_context=core_context)
+            self._setup(core_context=core_context)
             for op in core_context.searcher.operations():
                 while self.completed_epochs < op.length:
                     self.train_one_epoch(core_context=core_context)
@@ -167,7 +168,8 @@ class Trainer:
                     op.report_completed(val_metrics["val_loss"])
 
     def get_loss_and_update_metrics(self, outputs, labels):
-        loss = self.criterion(outputs, labels)
+        # TODO: allow for other loss functions
+        loss = torch.nn.functional.cross_entropy(outputs, labels)
         for met in self.accuracy_metrics.values():
             met(outputs, labels)
         self.loss_metric(loss)
