@@ -18,10 +18,10 @@ def main(core_context, info) -> None:
 
     transforms = data.build_timm_transforms(model_names=hparams.model.model_names)
     train_dataset = data.get_dataset(
-        split="train", name=hparams.data.dataset_name, transforms=transforms
+        split="train", dataset_name=hparams.data.dataset_name, transforms=transforms
     )
     val_dataset = data.get_dataset(
-        split="val", name=hparams.data.dataset_name, transforms=transforms
+        split="val", dataset_name=hparams.data.dataset_name, transforms=transforms
     )
 
     trainer = Trainer(
