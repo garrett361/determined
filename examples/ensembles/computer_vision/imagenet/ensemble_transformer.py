@@ -45,7 +45,6 @@ class EnsembleTransformer(nn.Module):
         d_model: int = 1000,
         num_heads: int = 2,
         dim_feedforward: int = 2048,
-        init_transformer_scale: float = 0.1,
         device: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
     ) -> None:
@@ -54,9 +53,6 @@ class EnsembleTransformer(nn.Module):
         self.class_token = nn.Parameter(torch.zeros(1, 1, d_model, **factory_kwargs))
         # Initialize as scale parameter which initializes the balance between the naive and
         # transformer outputs.
-        self.init_transformer_scale = nn.Parameter(
-            torch.tensor(init_transformer_scale, **factory_kwargs)
-        )
         self.layers = nn.ModuleList(
             [
                 EnsembleTransformerLayer(d_model, num_heads, dim_feedforward, **factory_kwargs)
@@ -80,7 +76,7 @@ class EnsembleTransformer(nn.Module):
         for layer in self.layers:
             x = layer(x)
         output_class_token = x[:, 0]
-        return naive_model_logits + self.init_transformer_scale * output_class_token
+        return naive_model_logits + output_class_token
 
 
 class Mixer(nn.Module):
