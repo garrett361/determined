@@ -212,12 +212,12 @@ class Workspace:
             trials += self._project_trials_dict[name]
         return trials
 
-    def get_trial_latest_val_results_dict(
+    def get_trial_best_val_results_dict(
         self,
         project_names: Optional[Union[Sequence[str], Set[str], str]] = None,
         refresh: bool = False,
     ) -> Dict[int, Dict[str, Any]]:
-        """Returns a dict summarizing the latest validation for trial in the Workspace, indexed by
+        """Returns a dict summarizing the best validation for trial in the Workspace, indexed by
         trial ID.  If project_names is provided, only trials from those Projects will be returned,
         otherwise, all trials in the Workspace will be returned.
         """
@@ -225,10 +225,10 @@ class Workspace:
         trials = self.get_all_trials(project_names, refresh)
 
         for trial in trials:
-            if trial["latestValidation"] is None:
+            if trial["bestValidation"] is None:
                 continue
             trial_results = {
-                **trial["latestValidation"]["metrics"],
+                **trial["bestValidation"]["metrics"],
                 **trial["hparams"],
                 "wall_clock_time": trial["wallClockTime"],
                 "experiment_id": trial["experimentId"],
@@ -237,16 +237,16 @@ class Workspace:
             trial_results_dict[idx] = trial_results
         return trial_results_dict
 
-    def get_trial_latest_val_results_df(
+    def get_trial_best_val_results_df(
         self,
         project_names: Optional[Union[Sequence[str], Set[str], str]] = None,
         refresh: bool = False,
     ) -> pd.DataFrame:
-        """Returns a DataFrame summarizing the latest validation for trials in the Workspace,
+        """Returns a DataFrame summarizing the best validation for trials in the Workspace,
         indexed by trial ID.  If project_names is provided, only trials from those Projects will be
         returned, otherwise, all trials in the Workspace will be returned.
         """
-        trial_results_dict = self.get_trial_latest_val_results_dict(project_names, refresh)
+        trial_results_dict = self.get_trial_best_val_results_dict(project_names, refresh)
         trial_results_df = pd.DataFrame.from_dict(trial_results_dict, orient="index")
         trial_results_df = trial_results_df[sorted(trial_results_df.columns)]
         return trial_results_df
@@ -292,7 +292,7 @@ class Workspace:
         for trial in trials:
             if (
                 trial["state"] not in {"STATE_ACTIVE", "STATE_UNSPECIFIED"}
-                and trial["latestValidation"] is None
+                and trial["bestValidation"] is None
             ):
                 idxs_to_delete_set.add(trial["experimentId"])
         if safe_mode and self._idxs_to_delete_set != idxs_to_delete_set:
