@@ -31,7 +31,7 @@ model_hparams = {
 }
 
 
-optimizer_hparams = {"lr": 2e-4}
+optimizer_hparams = {"lr": {"type": "log", "base": 10, "minval": -6, "maxval": -3, "count": 16}}
 
 trainer_hparams = {
     "worker_train_batch_size": 256,
@@ -47,12 +47,12 @@ data_hparams = {
 }
 
 # max_length is in epochs
-max_epochs = 8
+max_epochs = 16
 
 searcher_config = {
-    "name": "single",
+    "name": "grid",
     "max_length": max_epochs,
-    "metric": "val_top1_acc",  # TODO: Also needs to be hard-coded into the Trainer. Change.
+    "metric": "val_top1_acc",  # TODO: Also currently hard-coded into the Trainer. Change.
     "smaller_is_better": False,
 }
 
@@ -61,7 +61,7 @@ config = {
     "entrypoint": "python -m determined.launch.torch_distributed -- python3 main_transformers.py",
     "workspace": "Test",
     "project": "Test",
-    "name": "transformer_test",
+    "name": f"transformer_test_{NUM_BASE_MODELS}_{data_hparams['dataset_name']}",
     "max_restarts": 0,
     "reproducibility": {"experiment_seed": 42},
     "resources": {"slots_per_trial": 4},
