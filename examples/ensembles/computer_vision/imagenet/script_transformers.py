@@ -26,8 +26,8 @@ model_hparams = {
     "num_layers": 1,
     "num_heads": 2,
     "dim_feedforward": 1024,
-    "mix_models": True,
-    "mix_classes": True,
+    "mix_models": False,
+    "mix_classes": False,
 }
 
 
@@ -43,7 +43,7 @@ trainer_hparams = {
 }
 
 data_hparams = {
-    "dataset_name": "imagenewang",
+    "dataset_name": "imagewang",
 }
 
 # max_length is in epochs
