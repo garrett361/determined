@@ -25,9 +25,9 @@ model_hparams = {
     "model_names": model_names,
     "num_layers": 3,
     "num_heads": 8,
-    "dim_feedforward": 2048,
+    "dim_feedforward": 1024,
     "mix_models": True,
-    "mix_classes": True,
+    "mix_classes": False,
 }
 
 
@@ -47,7 +47,7 @@ data_hparams = {
 }
 
 # max_length is in epochs
-max_epochs = 16
+max_epochs = 8
 
 searcher_config = {
     "name": "grid",
