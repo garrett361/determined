@@ -35,6 +35,35 @@ class NLLMeanMetric(torchmetrics.Metric):
         return self.value / self.records
 
 
+class CrossEntropyMean(torchmetrics.Metric):
+    """Simple cross-entropy mean metric which takes in logits, labels pairs."""
+
+    value: torch.Tensor
+    is_differentiable = True
+    higher_is_better = False
+    full_state_update = False
+
+    def __init__(
+        self,
+        **kwargs: Any,
+    ):
+        super().__init__(**kwargs)
+        self.add_state("value", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("records", default=torch.tensor(0.0), dist_reduce_fx="sum")
+
+    def update(self, logits: torch.Tensor, labels: torch.Tensor) -> None:  # type: ignore
+        assert logits.shape[0] == labels.shape[0], "logits and labels must have the same batch size"
+        batch_size = logits.shape[0]
+        ce_loss = F.cross_entropy(logits, labels)
+
+        self.value += ce_loss * batch_size
+        self.records += batch_size
+
+    def compute(self) -> torch.Tensor:
+        """Compute the aggregated mean NLL loss."""
+        return self.value / self.records
+
+
 # class BatchDimMeanMetric(BaseAggregator):
 #     """Computes vectorized means over the batch dimension, assumed to be the leading dimension.
 #     E.g., the compute method returns the sum of all passed in tensor values divided by the total

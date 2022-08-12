@@ -1,16 +1,18 @@
 import logging
 import json
-from typing import Any, Dict, Generator, Optional, Tuple
+from typing import Any, Dict, Generator, Literal, Optional, Tuple
 
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torchmetrics
 from attrdict import AttrDict
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
-from torchmetrics import Accuracy, MeanMetric
+
+import ensemble_metrics
 
 
 class Trainer:
@@ -42,6 +44,13 @@ class Trainer:
         self.train_metric_agg_rate = hparams.trainer.train_metric_agg_rate
         self.max_len_unit = hparams.trainer.max_len_unit
 
+        if self.is_distributed:
+            dist.init_process_group("nccl")
+            self.model = DDP(self.model, device_ids=[self.rank])
+
+        # TODO: When DDP is used, stat_dicts are saved with `module.` in front of every usual key,
+        # which can lead to errors when loading non-distributed checkpoints into distributed models
+        # and vice versa. Fix.
         if info.latest_checkpoint is None:
             self.trained_batches = 0
             self.completed_epochs = 0
@@ -56,19 +65,22 @@ class Trainer:
                 optimizer_state_dict = torch.load(path.joinpath("optimizer_state_dict.pth"))
                 self.optimizer.load_state_dict(optimizer_state_dict)
 
-        if self.is_distributed:
-            dist.init_process_group("nccl")
-            self.model = DDP(self.model, device_ids=[self.rank])
-
         self.train_loader = self.build_data_loader(train=True)
         self.val_loader = self.build_data_loader(train=False)
         self.criterion = nn.CrossEntropyLoss()
-
-        self.accuracy_metrics = {f"top{k}_acc": Accuracy(top_k=k) for k in range(1, 6)}
-        for met in self.accuracy_metrics.values():
+        train_metrics = {
+            **{f"train_top{k}_acc": torchmetrics.Accuracy(top_k=k) for k in range(1, 6)},
+            "train_loss": ensemble_metrics.CrossEntropyMean(),
+        }
+        val_metrics = {
+            **{f"val_top{k}_acc": torchmetrics.Accuracy(top_k=k) for k in range(1, 6)},
+            "val_loss": ensemble_metrics.CrossEntropyMean(),
+        }
+        for met in train_metrics.values():
             met.to(self.device)
-        self.loss_metric = MeanMetric()
-        self.loss_metric.to(self.device)
+        for met in val_metrics.values():
+            met.to(self.device)
+        self.metrics = {"train": train_metrics, "val": val_metrics}
 
     def build_data_loader(self, train: bool) -> DataLoader:
         dataset = self.train_dataset if train else self.val_dataset
@@ -108,17 +120,17 @@ class Trainer:
         for batch_idx, inputs, labels in self.batch_generator(train=True):
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
-            loss = self.get_loss_and_update_metrics(outputs, labels)
+            loss = self.get_loss_and_update_metrics(outputs, labels, split="train")
             loss.backward()
             self.optimizer.step()
             self.trained_batches += 1
             if self.trained_batches % self.train_metric_agg_rate == 0:
-                computed_metrics = self.compute_metrics("train_")
+                computed_metrics = self.compute_metrics("train")
                 if self.is_chief:
                     self.core_context.train.report_training_metrics(
                         steps_completed=self.trained_batches, metrics=computed_metrics
                     )
-                self.reset_metrics()
+                self.reset_metrics("train")
 
     def validate(self) -> Dict[str, Any]:
         "Evaluate the model on the validation set and return all validation metrics."
@@ -133,13 +145,13 @@ class Trainer:
         with torch.no_grad():
             for batch_idx, inputs, labels in self.batch_generator(train=False):
                 outputs = self.model(inputs)
-                self.get_loss_and_update_metrics(outputs, labels)
-            val_metrics = self.compute_metrics("val_")
+                self.get_loss_and_update_metrics(outputs, labels, split="val")
+            val_metrics = self.compute_metrics("val")
             if self.is_chief:
                 self.core_context.train.report_validation_metrics(
                     steps_completed=self.trained_batches, metrics=val_metrics
                 )
-            self.reset_metrics()
+            self.reset_metrics("val")
         return val_metrics
 
     def train(self) -> None:
@@ -155,24 +167,21 @@ class Trainer:
             if self.is_chief:
                 op.report_completed(val_metrics["val_top1_acc"])
 
-    def get_loss_and_update_metrics(self, outputs, labels):
+    def get_loss_and_update_metrics(self, outputs, labels, split=Literal["train", "val"]):
         loss = self.criterion(outputs, labels)
-        for met in self.accuracy_metrics.values():
+        for met in self.metrics[split].values():
             met(outputs, labels)
-        self.loss_metric(loss)
         return loss
 
-    def compute_metrics(self, prefix: str = ""):
-        computed_metrics = {
-            prefix + name: metric.compute().item() for name, metric in self.accuracy_metrics.items()
-        }
-        computed_metrics[prefix + "loss"] = self.loss_metric.compute().item()
+    def compute_metrics(self, split: Literal["train", "val"]) -> Dict[str, Any]:
+        split_metrics = self.metrics[split]
+        computed_metrics = {name: metric.compute().item() for name, metric in split_metrics.items()}
         return computed_metrics
 
-    def reset_metrics(self):
-        for met in self.accuracy_metrics.values():
-            met.reset()
-        self.loss_metric.reset()
+    def reset_metrics(self, split: Literal["train", "val"]) -> None:
+        split_metrics = self.metrics[split]
+        for metric in split_metrics.values():
+            metric.reset()
 
     def checkpoint(self) -> None:
         if self.is_chief:

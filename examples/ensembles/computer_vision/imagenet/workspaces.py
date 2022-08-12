@@ -216,6 +216,7 @@ class Workspace:
         self,
         project_names: Optional[Union[Sequence[str], Set[str], str]] = None,
         refresh: bool = False,
+        only_get_completed: bool = True,
     ) -> Dict[int, Dict[str, Any]]:
         """Returns a dict summarizing the best validation for trial in the Workspace, indexed by
         trial ID.  If project_names is provided, only trials from those Projects will be returned,
@@ -227,9 +228,13 @@ class Workspace:
         for trial in trials:
             if trial["bestValidation"] is None:
                 continue
+            if only_get_completed and trial["state"] != "STATE_COMPLETED":
+                continue
+            best_val_metrics_dict = trial["bestValidation"]["metrics"]
+            flattened_hparam_dict = self._get_flattened_dict(trial["hparams"])
             trial_results = {
-                **trial["bestValidation"]["metrics"],
-                **trial["hparams"],
+                **best_val_metrics_dict,
+                **flattened_hparam_dict,
                 "wall_clock_time": trial["wallClockTime"],
                 "experiment_id": trial["experimentId"],
             }
@@ -241,12 +246,15 @@ class Workspace:
         self,
         project_names: Optional[Union[Sequence[str], Set[str], str]] = None,
         refresh: bool = False,
+        only_get_completed: bool = True,
     ) -> pd.DataFrame:
         """Returns a DataFrame summarizing the best validation for trials in the Workspace,
         indexed by trial ID.  If project_names is provided, only trials from those Projects will be
         returned, otherwise, all trials in the Workspace will be returned.
         """
-        trial_results_dict = self.get_trial_best_val_results_dict(project_names, refresh)
+        trial_results_dict = self.get_trial_best_val_results_dict(
+            project_names, refresh, only_get_completed
+        )
         trial_results_df = pd.DataFrame.from_dict(trial_results_dict, orient="index")
         trial_results_df = trial_results_df[sorted(trial_results_df.columns)]
         return trial_results_df
@@ -341,3 +349,16 @@ class Workspace:
         url: str,
     ) -> None:
         await session.delete(url, ssl=False)
+
+    def _get_flattened_dict(self, d: dict) -> Dict[str, Any]:
+        flat_dict = {}
+
+        def flatten(d: dict):
+            for key, val in d.items():
+                if not isinstance(val, dict):
+                    flat_dict[key] = val
+                else:
+                    flatten(val)
+
+        flatten(d)
+        return flat_dict

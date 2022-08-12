@@ -23,11 +23,11 @@ model_names = timm_models.get_timm_ensembles_of_model_names(
 model_hparams = {
     "checkpoint_path_prefix": "shared_fs/state_dicts/",
     "model_names": model_names,
-    "num_layers": 1,
-    "num_heads": 2,
-    "dim_feedforward": 1024,
-    "mix_models": False,
-    "mix_classes": False,
+    "num_layers": 3,
+    "num_heads": 8,
+    "dim_feedforward": 2048,
+    "mix_models": True,
+    "mix_classes": True,
 }
 
 
@@ -43,7 +43,7 @@ trainer_hparams = {
 }
 
 data_hparams = {
-    "dataset_name": "imagewang",
+    "dataset_name": "imagenetv2-top-images",
 }
 
 # max_length is in epochs
