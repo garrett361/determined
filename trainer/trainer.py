@@ -20,24 +20,27 @@ class Trainer:
         self,
         model_class: nn.Module,
         optimizer_class: torch.optim.Optimizer,
+        criterion_class: nn.Module,
         train_dataset: Dataset,
         val_dataset: Dataset,
     ) -> None:
 
         self.model_class = model_class
         self.optimizer_class = optimizer_class
+        self.criterion_class = criterion_class
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
 
         self.info = det.get_cluster_info()
-        # Maybe updated
+        # Updated if a checkpoint is restored:
         self.trained_batches = 0
         self.completed_epochs = 0
 
-        # Instantiated later
+        # Instantiated later in _setup():
         self.hparams = None
         self.model = None
         self.optimizer = None
+        self.criterion = None
         self.rank = None
         self.local_rank = None
         self.size = None
@@ -45,6 +48,7 @@ class Trainer:
         self.is_chief = None
         self.is_local_chief = None
         self.device = None
+        self.metrics = {"train": None, "val": None}
 
     def _setup(self, core_context: det.core.Context) -> None:
 
@@ -56,24 +60,25 @@ class Trainer:
         self.is_local_chief = self.local_rank == 0
         self.device = "cpu" if not self.is_distributed else f"cuda:{self.rank}"
 
-        self.hparams = self.get_hparams()
+        self.metrics = {"train": self.build_train_metrics(), "val": self.build_val_metrics()}
+        for split in self.metrics.values():
+            for metric in split.values():
+                metric.to(self.device)
+
+        self.hparams = self._get_hparams()
         self.model = self.model_class(**self.hparams.model)
         self.model.to(self.device)
-        self.optimizer = self.optimizer_class(self.model.parameters(), **self.hparams.optimizer)
         if self.is_distributed:
             dist.init_process_group("nccl")
             self.model = DDP(self.model, device_ids=[self.rank])
+
+        self.optimizer = self.optimizer_class(self.model.parameters(), **self.hparams.optimizer)
+        self.criterion = self.criterion_class(**self.hparams.criterion)
 
         self._restore_latest_checkpoint(core_context=core_context)
 
         self.train_loader = self.build_data_loader(train=True)
         self.val_loader = self.build_data_loader(train=False)
-
-        self.accuracy_metrics = {f"top{k}_acc": torchmetrics.Accuracy(top_k=k) for k in range(1, 6)}
-        for met in self.accuracy_metrics.values():
-            met.to(self.device)
-        self.loss_metric = torchmetrics.MeanMetric()
-        self.loss_metric.to(self.device)
 
     def _restore_latest_checkpoint(self, core_context: det.core.Context) -> None:
         if self.info.latest_checkpoint is not None:
@@ -86,6 +91,18 @@ class Trainer:
                 self.model.load_state_dict(model_state_dict)
                 optimizer_state_dict = torch.load(path.joinpath("optimizer_state_dict.pth"))
                 self.optimizer.load_state_dict(optimizer_state_dict)
+
+    def build_train_metrics(self) -> Dict[str, Any]:
+        """Build dictionary of training metrics."""
+        # Just using accuracy metrics for simplicity:
+        train_metrics = {f"train_top{k}_acc": torchmetrics.Accuracy(top_k=k) for k in range(1, 6)}
+        return train_metrics
+
+    def build_val_metrics(self) -> Dict[str, Any]:
+        """Build dictionary of validation metrics."""
+        # Just using accuracy metrics for simplicity:
+        val_metrics = {f"val_top{k}_acc": torchmetrics.Accuracy(top_k=k) for k in range(1, 6)}
+        return val_metrics
 
     def build_data_loader(self, train: bool) -> DataLoader:
         dataset = self.train_dataset if train else self.val_dataset
@@ -118,17 +135,12 @@ class Trainer:
         for batch_idx, inputs, labels in self.batch_generator(train=True):
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
-            loss = self.get_loss_and_update_metrics(outputs, labels)
+            loss = self.get_loss_and_update_metrics(outputs, labels, train=True)
             loss.backward()
             self.optimizer.step()
             self.trained_batches += 1
             if self.trained_batches % self.hparams.trainer.train_metric_agg_rate == 0:
-                computed_metrics = self.compute_metrics("train_")
-                if self.is_chief:
-                    core_context.train.report_training_metrics(
-                        steps_completed=self.trained_batches, metrics=computed_metrics
-                    )
-                self.reset_metrics()
+                self.get_metrics(train=True, core_context=core_context)
 
     def validate(self, core_context: det.core.Context) -> Dict[str, Any]:
         "Evaluate the model on the validation set and return all validation metrics."
@@ -143,17 +155,12 @@ class Trainer:
         with torch.no_grad():
             for batch_idx, inputs, labels in self.batch_generator(train=False):
                 outputs = self.model(inputs)
-                self.get_loss_and_update_metrics(outputs, labels)
-            val_metrics = self.compute_metrics("val_")
-            if self.is_chief:
-                core_context.train.report_validation_metrics(
-                    steps_completed=self.trained_batches, metrics=val_metrics
-                )
-            self.reset_metrics()
+                self.get_loss_and_update_metrics(outputs, labels, train=False)
+            val_metrics = self.get_metrics(train=False, core_context=core_context)
         return val_metrics
 
     def run(self) -> None:
-        with self.get_core_context() as core_context:
+        with self._get_core_context() as core_context:
             self._setup(core_context=core_context)
             for op in core_context.searcher.operations():
                 while self.completed_epochs < op.length:
@@ -161,33 +168,39 @@ class Trainer:
                     val_metrics = self.validate(core_context=core_context)
                     # Update completed_epochs before checkpointing for accurate checkpoint metadata
                     self.completed_epochs += 1
-                    self.checkpoint(core_context=core_context)
+                    self._checkpoint(core_context=core_context)
                     if core_context.preempt.should_preempt():
                         return
                 if self.is_chief:
-                    op.report_completed(val_metrics["val_loss"])
+                    # TODO: Don't hard code this; get from searcher config.
+                    op.report_completed(val_metrics["val_top1_acc"])
 
-    def get_loss_and_update_metrics(self, outputs, labels):
-        # TODO: allow for other loss functions
-        loss = torch.nn.functional.cross_entropy(outputs, labels)
-        for met in self.accuracy_metrics.values():
-            met(outputs, labels)
-        self.loss_metric(loss)
+    def get_loss_and_update_metrics(self, outputs, labels, train: bool):
+        metrics = self.metrics["train" if train else "val"]
+        for metric in metrics.values():
+            metric(outputs, labels)
+        loss = self.criterion(outputs, labels)
         return loss
 
-    def compute_metrics(self, prefix: str = ""):
-        computed_metrics = {
-            prefix + name: metric.compute().item() for name, metric in self.accuracy_metrics.items()
-        }
-        computed_metrics[prefix + "loss"] = self.loss_metric.compute().item()
+    def get_metrics(self, train: bool, core_context=det.core.Context):
+        metrics = self.metrics["train" if train else "val"]
+        computed_metrics = {name: metric.compute().item() for name, metric in metrics.items()}
+        report_fn = (
+            core_context.train.report_training_metrics
+            if train
+            else core_context.train.report_validation_metrics
+        )
+        if self.is_chief:
+            report_fn(steps_completed=self.trained_batches, metrics=computed_metrics)
+        self._reset_metrics(train=train)
         return computed_metrics
 
-    def reset_metrics(self):
-        for met in self.accuracy_metrics.values():
+    def _reset_metrics(self, train: bool):
+        metrics = self.metrics["train" if train else "val"]
+        for met in metrics.values():
             met.reset()
-        self.loss_metric.reset()
 
-    def checkpoint(self, core_context: det.core.Context) -> None:
+    def _checkpoint(self, core_context: det.core.Context) -> None:
         if self.is_chief:
             checkpoint_metadata = {
                 "completed_epochs": self.completed_epochs,
@@ -198,11 +211,11 @@ class Trainer:
                 torch.save(self.model.state_dict(), path.joinpath("model_state_dict.pth"))
                 torch.save(self.optimizer.state_dict(), path.joinpath("optimizer_state_dict.pth"))
 
-    def get_hparams(self) -> attrdict.AttrDict:
+    def _get_hparams(self) -> attrdict.AttrDict:
         hparams = attrdict.AttrDict(self.info.trial.hparams)
         return hparams
 
-    def get_core_context(self) -> det.core.Context:
+    def _get_core_context(self) -> det.core.Context:
         try:
             distributed = det.core.DistributedContext.from_torch_distributed()
         except KeyError:
