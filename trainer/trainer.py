@@ -65,7 +65,7 @@ class Trainer:
             for metric in split.values():
                 metric.to(self.device)
 
-        self.hparams = self._get_hparams()
+        self.hparams = attrdict.AttrDict(self.info.trial.hparams)
         self.model = self.model_class(**self.hparams.model)
         self.model.to(self.device)
         if self.is_distributed:
@@ -143,7 +143,7 @@ class Trainer:
                 self.get_metrics(train=True, core_context=core_context)
 
     def validate(self, core_context: det.core.Context) -> Dict[str, Any]:
-        "Evaluate the model on the validation set and return all validation metrics."
+        """Evaluate the model on the validation set and return all validation metrics."""
         self.model.eval()
         if self.is_chief:
             print(
@@ -183,6 +183,7 @@ class Trainer:
         return loss
 
     def get_metrics(self, train: bool, core_context=det.core.Context):
+        """Computes, reports, and resets all relevant metrics."""
         metrics = self.metrics["train" if train else "val"]
         computed_metrics = {name: metric.compute().item() for name, metric in metrics.items()}
         report_fn = (
@@ -192,13 +193,9 @@ class Trainer:
         )
         if self.is_chief:
             report_fn(steps_completed=self.trained_batches, metrics=computed_metrics)
-        self._reset_metrics(train=train)
-        return computed_metrics
-
-    def _reset_metrics(self, train: bool):
-        metrics = self.metrics["train" if train else "val"]
         for met in metrics.values():
             met.reset()
+        return computed_metrics
 
     def _checkpoint(self, core_context: det.core.Context) -> None:
         if self.is_chief:
@@ -210,10 +207,6 @@ class Trainer:
             with core_context.checkpoint.store_path(checkpoint_metadata) as (path, storage_id):
                 torch.save(self.model.state_dict(), path.joinpath("model_state_dict.pth"))
                 torch.save(self.optimizer.state_dict(), path.joinpath("optimizer_state_dict.pth"))
-
-    def _get_hparams(self) -> attrdict.AttrDict:
-        hparams = attrdict.AttrDict(self.info.trial.hparams)
-        return hparams
 
     def _get_core_context(self) -> det.core.Context:
         try:

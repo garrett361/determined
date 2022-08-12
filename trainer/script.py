@@ -30,7 +30,7 @@ config = {
     "name": "mnist_pytorch_core_api",
     "max_restarts": 0,
     "reproducibility": {"experiment_seed": 42},
-    "resources": {"slots_per_trial": 2},
+    "resources": {"slots_per_trial": 1},
     "searcher": {"name": "single", "max_length": 3, "metric": "val_loss"},
     "environment": {"environment_variables": ["OMP_NUM_THREADS=1"]},
     "hyperparameters": {
