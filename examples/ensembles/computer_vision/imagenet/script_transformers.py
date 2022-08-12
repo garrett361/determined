@@ -26,12 +26,12 @@ model_hparams = {
     "num_layers": 1,
     "num_heads": 2,
     "dim_feedforward": 1024,
-    "mix_models": False,
-    "mix_classes": False,
+    "mix_models": True,
+    "mix_classes": True,
 }
 
 
-optimizer_hparams = {"lr": {"type": "log", "base": 10, "minval": -6, "maxval": -3, "count": 16}}
+optimizer_hparams = {"lr": {"type": "log", "base": 10, "minval": -6, "maxval": -3, "count": 8}}
 
 trainer_hparams = {
     "worker_train_batch_size": 256,
@@ -43,7 +43,7 @@ trainer_hparams = {
 }
 
 data_hparams = {
-    "dataset_name": "imagenetv2-top-images",
+    "dataset_name": "imagenewang",
 }
 
 # max_length is in epochs
@@ -56,12 +56,17 @@ searcher_config = {
     "smaller_is_better": False,
 }
 
+name = f"transformer_test_{NUM_BASE_MODELS}_{data_hparams['dataset_name']}"
+if model_hparams["mix_models"]:
+    name += "_mix_models"
+if model_hparams["mix_classes"]:
+    name += "_mix_classes"
 
 config = {
     "entrypoint": "python -m determined.launch.torch_distributed -- python3 main_transformers.py",
     "workspace": "Test",
     "project": "Test",
-    "name": f"transformer_test_{NUM_BASE_MODELS}_{data_hparams['dataset_name']}",
+    "name": name,
     "max_restarts": 0,
     "reproducibility": {"experiment_seed": 42},
     "resources": {"slots_per_trial": 4},
