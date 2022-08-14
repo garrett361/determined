@@ -120,7 +120,7 @@ if args.delete_unvalidated:
 existing_trials_df = (
     pd.DataFrame()
     if args.allow_duplicates
-    else workspace.get_trial_latest_val_results_df(project_names=project_name)
+    else workspace.get_trial_best_val_results_df(project_names=project_name)
 )
 
 
