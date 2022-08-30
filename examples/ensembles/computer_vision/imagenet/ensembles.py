@@ -240,8 +240,6 @@ class ClassificationEnsemble(nn.Module):
             if self.is_chief:
                 self.report_metrics(split="val")
             self.reset_metrics(split="val")
-        if self.core_context.preempt.should_preempt():
-            return
 
     def train_vbmc(self) -> None:
         """Computes the posterior and resulting effective weights for the num_combination linear
@@ -277,8 +275,6 @@ class ClassificationEnsemble(nn.Module):
         self.report_metrics(
             split="train", additional_metrics=metrics, compute_default_metrics=False
         )
-        if self.core_context.preempt.should_preempt():
-            return
 
     def calibrate_temperature(
         self,
@@ -323,8 +319,6 @@ class ClassificationEnsemble(nn.Module):
                             additional_metrics=beta_dict,
                             compute_default_metrics=False,
                         )
-            if self.core_context.preempt.should_preempt():
-                return
 
     def _conjugate_gradient(
         self,
@@ -422,5 +416,3 @@ class ClassificationEnsemble(nn.Module):
                         self.report_metrics(split="train", additional_metrics=ensemble_weight_dict)
                     self.reset_metrics(split="train")
                     ensemble_weight_history.append(self.ensemble_weights.clone())
-            if self.core_context.preempt.should_preempt():
-                return
