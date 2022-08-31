@@ -1,0 +1,7 @@
+name: log_models
+searcher:
+  name: single
+  metric: irrelevant_here # Still required to run
+  max_length: 0 # Still required to run
+entrypoint: python3 main.py
+max_restarts: 0
