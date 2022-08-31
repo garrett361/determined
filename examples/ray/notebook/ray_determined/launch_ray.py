@@ -188,7 +188,7 @@ def main() -> int:
 
     pid_server_cmd = create_pid_server_cmd(info.allocation_id, 1)
     pid_client_cmd = create_pid_client_cmd(info.allocation_id)
-    ngrok_cmd = create_ngrok_cmd(RAY_PORT)
+    ngrok_cmd = create_ngrok_cmd(RAY_CLIENT_SERVER_PORT)
 
     launch_cmd = pid_server_cmd + pid_client_cmd + log_redirect_cmd + ngrok_cmd
 
@@ -204,13 +204,11 @@ def main() -> int:
         print("Launching Ray at {ray_address}")
         ray_proc = subprocess.Popen(ray_cmd)
         time.sleep(5)
+        print("Configuring ngrok")
+        subprocess.Popen("ngrok config add-authtoken $NGROK_AUTH_TOKEN", shell=True).wait()
         print("Launching ngrok")
-        open_ngrok_tunnel(RAY_CLIENT_SERVER_PORT)
+        subprocess.Popen(" ".join(launch_cmd), shell=True).wait()
         return ray_proc.wait()
-
-
-def open_ngrok_tunnel(client_server_port: int) -> None:
-    subprocess.Popen(f'ngrok tcp {client_server_port} --log "stdout"', shell=True).wait()
 
 
 def init_ray_determined(
