@@ -1,0 +1,15 @@
+name: ray cluster
+debug: false
+resources:
+  slots_per_trial: 2
+searcher:
+  name: single
+  metric: loss
+  max_length:
+    batches: 1
+entrypoint: python3 -m ray_determined.launch_ray
+max_restarts: 0
+checkpoint_policy: none
+environment:
+  image:
+    cuda: coreystaten/raynotebook:latest
