@@ -65,7 +65,6 @@ class DeterminedMasterAPI:
     def get_logs(self, trial_id: int) -> List[str]:
         """
         Get logs for the given trial ID.
-        We use these logs to communicate timing metrics not coming from the default profiler.
         """
         url = make_url(self.master_url, f"/api/v1/trials/{trial_id}/logs")
         params = {
