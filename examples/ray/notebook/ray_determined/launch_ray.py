@@ -228,7 +228,8 @@ def init_ray_determined(
     config = {
         "name": "ray cluster",
         "debug": False,
-        "resources": {"slots_per_trial": num_slots},
+        # 10GB shm_size. Ray gives warning for default size.
+        "resources": {"slots_per_trial": num_slots, "shm_size": 10737418240},
         "searcher": {"name": "single", "metric": "loss", "max_length": {"batches": 1}},
         "entrypoint": "python3 launch_ray.py",
         "max_restarts": 0,
