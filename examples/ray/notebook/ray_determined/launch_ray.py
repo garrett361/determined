@@ -147,24 +147,11 @@ def create_pid_client_cmd(allocation_id: str) -> List[str]:
     ]
 
 
-def install_ngrok() -> None:
-    subprocess.Popen(
-        "curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | "
-        "tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null && "
-        'echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | '
-        "tee /etc/apt/sources.list.d/ngrok.list && "
-        "apt update && apt install ngrok",
-        shell=True,
-    ).wait()
-    subprocess.Popen("ngrok config add-authtoken $NGROK_AUTH_TOKEN", shell=True).wait()
-
-
 def create_ngrok_cmd(port: int) -> List[str]:
     return ["ngrok", "tcp", str(port), "--log", '"stdout"']
 
 
 def main() -> int:
-    # install_ngrok()
     info = det.get_cluster_info()
     assert info is not None, "must be run on-cluster"
 
@@ -265,7 +252,7 @@ def init_ray_determined(
         if found:
             break
         time.sleep(1)
-    ray.init(url)
+    ray.init(address=url)
 
     def kill_exp() -> None:
         exp.kill()
