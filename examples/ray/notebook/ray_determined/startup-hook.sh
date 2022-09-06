@@ -1,2 +1,2 @@
-# TODO: Remove after updating Docker image to install pyarrow.
-pip install pyarrow
+# TODO: Remove below after updating Dockerfile with similar installs
+pip install pyarrow "ray[default]"
