@@ -1,5 +1,5 @@
 FROM determinedai/environments:cuda-11.3-pytorch-1.10-tf-2.8-gpu-ecee7c1
-RUN pip install ray
+RUN pip install ray pyarrow
 RUN curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | \
     tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null && \
     echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | \
