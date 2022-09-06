@@ -11,10 +11,6 @@ from determined.experimental import client
 import ray
 
 
-RAY_PORT = 6379
-RAY_CLIENT_SERVER_PORT = 10001
-
-
 def parse_master_address(master_address: str) -> parse.ParseResult:
     if master_address.startswith("https://"):
         default_port = 443
@@ -99,7 +95,7 @@ def init_ray_determined(
     config = {
         "name": "ray cluster",
         "debug": False,
-        # 10GB shm_size. Ray gives warning for default size.
+        # 10GiB shm_size. Determined default shm_size leads to Ray warning.
         "resources": {"slots_per_trial": num_slots, "shm_size": 10737418240},
         "searcher": {"name": "single", "metric": "loss", "max_length": {"batches": 1}},
         "entrypoint": "python3 launch_ray.py",
@@ -137,8 +133,8 @@ def init_ray_determined(
             break
         time.sleep(1)
     ray_init_kwargs = ray_init_kwargs or {}
+    print(f"Initializing Ray master at {ray_url}")
     ray.init(address=ray_url, **ray_init_kwargs)
-    print(f"Ray initialized at address {ray_url}")
 
     def kill_exp() -> None:
         exp.kill()
