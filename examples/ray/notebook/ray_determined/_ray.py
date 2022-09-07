@@ -133,8 +133,13 @@ def init_ray_determined(
             break
         time.sleep(1)
     ray_init_kwargs = ray_init_kwargs or {}
-    print(f"Initializing Ray master at {ray_url}")
+    print(f"Connecting to Ray master using address {ray_url}")
     ray.init(address=ray_url, **ray_init_kwargs)
+    print("Connected to Ray master.")
+
+    get_dashboard_url = ray.remote(ray._private.worker.get_dashboard_url)
+    dashboard_url = ray.get(get_dashboard_url.options(num_cpus=0).remote())
+    print(f"Ray dashboard URL: {dashboard_url}")
 
     def kill_exp() -> None:
         exp.kill()
