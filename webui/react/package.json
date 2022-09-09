@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "ansi-to-html": "^0.7.1",
-    "antd": "^4.21.4",
+    "antd": "^4.23.1",
     "dayjs": "^1.10.7",
     "debug": "^4.3.4",
     "fp-ts": "^2.11.2",
