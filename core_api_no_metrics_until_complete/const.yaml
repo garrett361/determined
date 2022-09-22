@@ -1,0 +1,10 @@
+name: core_api_no_metrics_until_complete
+entrypoint: python -m determined.launch.torch_distributed python3 main.py
+searcher:
+  name: single
+  metric: loss
+  max_length: 60
+resources:
+  slots_per_trial: 1
+max_restarts: 0
+
