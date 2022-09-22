@@ -1,4 +1,7 @@
-"""Minimal example demonstrating the lack of metrics in the Web UI when using Core API and 0.19.3"""
+"""Minimal example demonstrating the lack of metrics in the Web UI during training when using Core
+API and det >= 0.19.2 (might also happen for 0.19.1; haven't checked). Metrics are populated only
+after training is completed.
+"""
 import logging
 import time
 
