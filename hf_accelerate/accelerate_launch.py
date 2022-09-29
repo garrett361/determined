@@ -13,19 +13,19 @@ C10D_PORT = 29400
 def create_launch_cmd(
     num_nodes: int, proc_per_node: int, node_rank: int, master_addr: str, override_args: List[str]
 ) -> List[str]:
+    # HF Accelerate does something funny with computing nproc_per_node: https://github.com/huggingface/accelerate/blob/9e4fe78b95cafc0e4f79dda004aabc7e4953568c/src/accelerate/commands/launch.py#L402
+    # TODO: Test whether this causes unexpected behavior when num_processes % num_machines != 0
     cmd = [
         "python3",
-        "-m",
-        "torch.distributed.run",
-        "--nnodes",
+        "accelerate",
+        "launch",
+        "--num_machines",
         str(num_nodes),
-        "--nproc_per_node",
-        str(proc_per_node),
-        "--node_rank",
+        "--machine_rank",
         str(node_rank),
         "--max_restarts",
         "0",
-        "--master_addr",
+        "--main_process_ip",
         master_addr,
         "--master_port",
         str(C10D_PORT),
