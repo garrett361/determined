@@ -11,7 +11,7 @@ C10D_PORT = 29400
 
 
 def create_launch_cmd(
-    num_nodes: int, proc_per_node: int, node_rank: int, master_addr: str, override_args: List[str]
+    num_nodes: int, node_rank: int, master_addr: str, override_args: List[str]
 ) -> List[str]:
     # HF Accelerate does something funny with computing nproc_per_node: https://github.com/huggingface/accelerate/blob/9e4fe78b95cafc0e4f79dda004aabc7e4953568c/src/accelerate/commands/launch.py#L402
     # TODO: Test whether this causes unexpected behavior when num_processes % num_machines != 0
@@ -80,9 +80,10 @@ def main(override_args: List[str], script: List[str]) -> int:
     chief_ip = info.container_addrs[0]
     os.environ["DET_CHIEF_IP"] = chief_ip
 
+    # Removed len(info.slot_ids) as second arg, since hf accelerate computes nproc_per_node,
+    # internally, which is probably problematic
     torch_distributed_cmd = create_launch_cmd(
         len(info.container_addrs),
-        len(info.slot_ids),
         info.container_rank,
         "localhost" if len(info.container_addrs) == 1 else chief_ip,
         override_args,
