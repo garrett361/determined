@@ -16,18 +16,15 @@ def create_launch_cmd(
     # HF Accelerate does something funny with computing nproc_per_node: https://github.com/huggingface/accelerate/blob/9e4fe78b95cafc0e4f79dda004aabc7e4953568c/src/accelerate/commands/launch.py#L402
     # TODO: Test whether this causes unexpected behavior when num_processes % num_machines != 0
     cmd = [
-        "python3",
         "accelerate",
         "launch",
         "--num_machines",
         str(num_nodes),
         "--machine_rank",
         str(node_rank),
-        "--max_restarts",
-        "0",
         "--main_process_ip",
         master_addr,
-        "--master_port",
+        "--main_process_port",
         str(C10D_PORT),
         "--module",
     ]
