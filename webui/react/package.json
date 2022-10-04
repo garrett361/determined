@@ -49,7 +49,7 @@
     "omnibar": "github:hamidzr/omnibar",
     "path-to-regexp": "^6.2.1",
     "portable-fetch": "^3.0.0",
-    "pretty-bytes": "^5.6.0",
+    "pretty-bytes": "^6.0.0",
     "query-string": "^7.0.1",
     "react": "^17.0.2",
     "react-dnd": "^15.1.1",
