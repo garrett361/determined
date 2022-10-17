@@ -37,7 +37,7 @@
     "antd": "^4.21.4",
     "dayjs": "^1.10.7",
     "debug": "^4.3.4",
-    "fp-ts": "^2.11.2",
+    "fp-ts": "^2.13.0",
     "fuse.js": "^6.4.6",
     "hermes-parallel-coordinates": "^0.5.18",
     "history": "^4.10.1",
