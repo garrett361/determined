@@ -6,5 +6,11 @@ searcher:
   max_length: 1
 resources:
   slots_per_trial: 2
+hyperparameters:
+  dimension: 10
+  batch_size: 128
+  num_records: 1280
+  lr: 1e-3
+  gradient_accumulation_steps: 4
 max_restarts: 0
     
