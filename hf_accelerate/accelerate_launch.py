@@ -11,13 +11,20 @@ C10D_PORT = 29400
 
 
 def create_launch_cmd(
-    num_nodes: int, node_rank: int, master_addr: str, override_args: List[str]
+    num_nodes: int, proc_per_node: int, node_rank: int, master_addr: str, override_args: List[str]
 ) -> List[str]:
     # HF Accelerate does something funny with computing nproc_per_node: https://github.com/huggingface/accelerate/blob/9e4fe78b95cafc0e4f79dda004aabc7e4953568c/src/accelerate/commands/launch.py#L402
-    # TODO: Test whether this causes unexpected behavior when num_processes % num_machines != 0
+    # TODO: Test whether this causes unexpected behavior when num_processes % num_machines != 0,
+    # namely whether fewer than num_processes are launched.
+
+    # TODO: Can't currently pass in a --config_file argument easily because it's expected that
+    # num_processes (and probably other info) is included in the config, whereas we derive such info
+    # from the cluster.
     cmd = [
         "accelerate",
         "launch",
+        "--num_processes",
+        str(proc_per_node),
         "--num_machines",
         str(num_nodes),
         "--machine_rank",
@@ -26,9 +33,9 @@ def create_launch_cmd(
         master_addr,
         "--main_process_port",
         str(C10D_PORT),
+        "--multi_gpu",
         "--module",
     ]
-
     cmd.extend(override_args)
     return cmd
 
@@ -77,13 +84,17 @@ def main(override_args: List[str], script: List[str]) -> int:
     chief_ip = info.container_addrs[0]
     os.environ["DET_CHIEF_IP"] = chief_ip
 
-    # Removed len(info.slot_ids) as second arg, since hf accelerate computes nproc_per_node,
-    # internally, which is probably problematic
-    torch_distributed_cmd = create_launch_cmd(
-        len(info.container_addrs),
-        info.container_rank,
-        "localhost" if len(info.container_addrs) == 1 else chief_ip,
-        override_args,
+    num_nodes = len(info.container_addrs)
+    proc_per_node = len(info.slot_ids)
+    node_rank = info.container_rank
+    master_addr = "localhost" if len(info.container_addrs) == 1 else chief_ip
+
+    hf_accelerate_cmd = create_launch_cmd(
+        num_nodes=num_nodes,
+        proc_per_node=proc_per_node,
+        node_rank=node_rank,
+        master_addr=master_addr,
+        override_args=override_args,
     )
 
     log_redirect_cmd = create_log_redirect_cmd()
@@ -93,7 +104,7 @@ def main(override_args: List[str], script: List[str]) -> int:
     pid_server_cmd = create_pid_server_cmd(info.allocation_id, len(info.slot_ids))
     pid_client_cmd = create_pid_client_cmd(info.allocation_id)
 
-    launch_cmd = pid_server_cmd + torch_distributed_cmd + pid_client_cmd + log_redirect_cmd + script
+    launch_cmd = pid_server_cmd + hf_accelerate_cmd + pid_client_cmd + log_redirect_cmd + script
 
     logging.debug(f"Torch distributed launching with: {launch_cmd}")
 
@@ -111,14 +122,15 @@ def parse_args(args: List[str]) -> Tuple[List[str], List[str]]:
         override_args = []
 
     parser = argparse.ArgumentParser(
-        usage="%(prog)s [[TORCH_OVERRIDES...] --] (--trial TRIAL)|(SCRIPT...)",
+        usage="%(prog)s [[HF_ACCELERATE_OVERRIDES...] --] (--trial TRIAL)|(SCRIPT...)",
         description=("Launch a script under pytorch distributed on a Determined cluster"),
         epilog=(
-            "TORCH_OVERRIDES may be a list of arguments to pass directly to "
-            "torch.distributed.launch to override the values set by Determined automatically.  "
+            "HF_ACCELERATE_OVERRIDES may be a list of arguments to pass directly to "
+            "`accelerate launch` to override the values set by Determined automatically.  "
             "When provided, the list of override arguments must be terminated by a `--` argument."
         ),
     )
+    # TODO: Haven't tested if this works with Trial classes.
     # For legacy Trial classes.
     parser.add_argument(
         "--trial",
