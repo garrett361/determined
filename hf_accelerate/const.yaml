@@ -1,16 +1,18 @@
 name: hf_accelerate_tests
-entrypoint: python3 accelerate_launch.py -- python3 main.py
+entrypoint: python3 accelerate_launch.py --mixed_precision no -- python3 main.py
 searcher:
   name: single
   metric: loss
-  max_length: 1
+  max_length: 100
 resources:
-  slots_per_trial: 2
+  slots_per_trial: 3
 hyperparameters:
   dimension: 10
   batch_size: 128
   num_records: 1280
   lr: 1e-3
   gradient_accumulation_steps: 4
+  metric_report_freq: 10
+  checkpoint_freq: 20
 max_restarts: 0
     
