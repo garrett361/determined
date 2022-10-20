@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import List
 
 import accelerate
@@ -77,59 +78,73 @@ def main() -> None:
                 with open(path.joinpath("metadata.json"), "r") as f:
                     checkpoint_metadata_dict = json.load(f)
                     steps_completed = checkpoint_metadata_dict["steps_completed"]
+                    optimizer_state_dict = torch.load(
+                        path.joinpath("optimizer_state_dict.pt"),
+                        map_location=accelerator.device,
+                    )
+                    optimizer.load_state_dict(optimizer_state_dict)
+                    model_state_dict = torch.load(
+                        path.joinpath("model_state_dict.pt"),
+                        map_location=accelerator.device,
+                    )
+                    model.load_state_dict(model_state_dict)
 
         # Emits a single operation of length max_len, as defined in the searcher config.
         local_loss_history = []
         for op in core_context.searcher.operations():
             while steps_completed < op.length:
-                for batch in dataloader:
+                logger.info(f"Starting epoch {steps_completed}")
+                for batch_idx, batch in enumerate(dataloader):
                     # Use the accumulate method for efficient gradient accumulation.
                     with accelerator.accumulate(model):
                         loss = train_one_batch_and_get_loss(batch, model, optimizer, accelerator)
                         local_loss_history.append(loss.item())
-                    took_sgd_step = accelerator.sync_gradients
-                    if took_sgd_step:
-                        steps_completed += 1
-                        logger.info(f"Step {steps_completed} completed.")
-                        if accelerator.is_main_process:
-                            op.report_progress(steps_completed)
+                # steps are epochs, here.
+                steps_completed += 1
+                if accelerator.is_main_process:
+                    op.report_progress(steps_completed)
 
-                        is_end_of_training = steps_completed == op.length
-                        time_to_report = steps_completed % hparams.metric_report_freq == 0
-                        time_to_ckpt = steps_completed % hparams.checkpoint_freq == 0
+                is_end_of_training = steps_completed == op.length
+                time_to_report = steps_completed % hparams.metric_report_freq == 0
+                time_to_ckpt = steps_completed % hparams.checkpoint_freq == 0
 
-                        # Report metrics, checkpoint, and preempt as appropriate.
-                        if is_end_of_training or time_to_report:
-                            global_mean_loss = get_global_mean_loss(accelerator, local_loss_history)
-                            local_loss_history = []
-                            if accelerator.is_main_process:
-                                core_context.train.report_training_metrics(
-                                    steps_completed=steps_completed,
-                                    metrics={"loss": global_mean_loss},
-                                )
-                                # report_progress for Web UI progress-bar rendering.
-                                op.report_progress(steps_completed)
+                # Report metrics, checkpoint, and preempt as appropriate.
+                if is_end_of_training or time_to_report:
+                    global_mean_loss = get_global_mean_loss(accelerator, local_loss_history)
+                    local_loss_history = []
+                    if accelerator.is_main_process:
+                        core_context.train.report_training_metrics(
+                            steps_completed=steps_completed,
+                            metrics={"loss": global_mean_loss},
+                        )
+                        # report_progress for Web UI progress-bar rendering.
+                        op.report_progress(steps_completed)
 
-                        if is_end_of_training or time_to_ckpt:
-                            logger.info(f"Saving checkpoint at step {steps_completed}.")
-                            accelerator.wait_for_everyone()
-                            if accelerator.is_main_process:
-                                checkpoint_metadata_dict = {
-                                    "steps_completed": steps_completed,
-                                }
-                                with core_context.checkpoint.store_path(
-                                    checkpoint_metadata_dict
-                                ) as (path, storage_id):
-                                    # Non-trivial checkpointing logic goes here.
-                                    pass
-                            if core_context.preempt.should_preempt():
-                                return
-                        if is_end_of_training:
-                            break
+                if is_end_of_training or time_to_ckpt:
+                    logger.info(f"Saving checkpoint at step {steps_completed}.")
+                    accelerator.wait_for_everyone()
+                    if accelerator.is_main_process:
+                        checkpoint_metadata_dict = {
+                            "steps_completed": steps_completed,
+                        }
+                        with core_context.checkpoint.store_path(checkpoint_metadata_dict) as (
+                            path,
+                            storage_id,
+                        ):
+                            accelerator.save(
+                                model.state_dict(), path.joinpath("model_state_dict.pt")
+                            )
+                            accelerator.save(
+                                optimizer.state_dict(), path.joinpath("optimizer_state_dict.pt")
+                            )
+                    if core_context.preempt.should_preempt():
+                        return
+
             if accelerator.is_main_process:
-                # Report the final mean loss.
+                # Report the final loss.
                 op.report_completed(global_mean_loss)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
     main()
