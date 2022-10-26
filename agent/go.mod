@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/determined-ai/determined/master v0.0.0
-	github.com/docker/distribution v2.7.1+incompatible
+	github.com/docker/distribution v2.8.1+incompatible
 	github.com/docker/docker v20.10.12+incompatible
 	github.com/docker/docker-credential-helpers v0.6.4
 	github.com/docker/go-connections v0.4.0
@@ -25,7 +25,6 @@ require (
 )
 
 require (
-	github.com/determined-ai/determined/proto v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.8.0
 	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.29.0
 	golang.org/x/exp v0.0.0-20220328175248-053ad81199eb
