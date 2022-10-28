@@ -13,6 +13,7 @@ from determined.pytorch.deepspeed import overwrite_deepspeed_config
 
 
 def main(args, info, context):
+    # GG: Why is this needed?
     deepspeed.init_distributed()
 
     ########################################################################
