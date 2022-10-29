@@ -121,6 +121,7 @@ def main(args, info, context):
     # 1) Distributed model
     # 2) Distributed data loader
     # 3) DeepSpeed optimizer
+    # GG: Is this a hack? Need to pass in LR, but then move to right location?
     ds_config_file = args.pop("deepspeed_config")
     ds_config = det.pytorch.deepspeed.overwrite_deepspeed_config(
         ds_config_file, {"optimizer": {"params": {"lr": args.learning_rate}}}
