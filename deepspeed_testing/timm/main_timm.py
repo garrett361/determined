@@ -8,23 +8,30 @@ import trainer
 import timm_models
 
 
+def lower_dict_keys(d: Dict[str, Any]) -> Dict[str, Any]:
+    lower_d = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            lower_d[k.lower()] = lower_dict_keys(v)
+        else:
+            lower_d[k.lower()] = v
+    return lower_d
+
+
 def main(core_context, hparams: Dict[str, Any], latest_checkpoint: str) -> None:
     hparams = attrdict.AttrDict(hparams)
     model = timm_models.build_timm_model(
         model_name=hparams.model_name, checkpoint_path_prefix=hparams.checkpoint_path_prefix
     )
-    transforms = data.build_timm_transforms(model_names=hparams.model_names)
+    transforms = data.build_timm_transforms(model_name=hparams.model_name)
     ds_trainer = trainer.DeepSpeedTrainer(
         core_context,
         latest_checkpoint=latest_checkpoint,
         model=model,
         transforms=transforms,
-        ds_config=hparams.ds_config,
-        train_batch_size=hparams.train_batch_size,
-        val_batch_size=hparams.val_batch_size,
         dataset_name=hparams.dataset_name,
+        ds_config=lower_dict_keys(hparams.ds_config),
         sanity_check=hparams.sanity_check,
-        lr=hparams.lr,
     )
     ds_trainer.train()
 
@@ -34,9 +41,6 @@ if __name__ == "__main__":
     info = det.get_cluster_info()
     latest_checkpoint = info.latest_checkpoint
     hparams = info.trial.hparams
-    try:
-        distributed = det.core.DistributedContext.from_torch_distributed()
-    except KeyError:
-        distributed = None
+    distributed = det.core.DistributedContext.from_deepspeed()
     with det.core.init(distributed=distributed) as core_context:
         main(core_context, hparams, latest_checkpoint)

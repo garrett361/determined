@@ -1,15 +1,11 @@
 import argparse
 import contextlib
-import math
+import json
 import os
 import sys
-from typing import Dict
 
 from determined.experimental import client
-import pandas as pd
-import re
 
-import strategies
 import timm_models
 import workspaces
 
@@ -29,6 +25,7 @@ parser = argparse.ArgumentParser(description="ImageNet DeepSpeedTrainer Loops")
 parser.add_argument("-m", "--master", type=str, default="localhost:8080")
 parser.add_argument("-u", "--user", type=str, default="determined")
 parser.add_argument("-p", "--password", type=str, default="")
+parser.add_argument("-spt", "--slots_per_trial", type=int, default=2)
 parser.add_argument("-d", "--dataset_name", type=str, default="imagenette2-160")
 parser.add_argument("-mc", "--model_criteria", type=str, default="small")
 parser.add_argument("-en", "--experiment_name", type=str, default="")
@@ -38,16 +35,28 @@ parser.add_argument("-mn", "--model_name", type=str, default="")
 parser.add_argument(
     "-cpp", "--checkpoint_path_prefix", type=str, default="shared_fs/ensembles/state_dicts/"
 )
-parser.add_argument("-tb", "--train_batch_size", type=int, default=256)
-parser.add_argument("-vb", "--val_batch_size", type=int, default=256)
+parser.add_argument("-tmbs", "--train_micro_batch_size_per_gpu", type=int, default=128)
+parser.add_argument("-gas", "--gradient_accumulation_steps", type=int, default=1)
 parser.add_argument("-lr", "--lr", type=float, default=0.001)
 parser.add_argument("-e", "--epochs", type=int, default=1)
 parser.add_argument("-sc", "--sanity_check", action="store_true")
-parser.add_argument("-ad", "--allow_duplicates", action="store_true")
-parser.add_argument("-du", "--delete_unvalidated", action="store_true")
 parser.add_argument("-t", "--test", action="store_true")
-parser.add_argument("-nsc", "--no_safety_check", action="store_true")
+parser.add_argument("-zs", "--zero_stage", type=int, nargs="+", default=[0])
+parser.add_argument("-fl", "--flops_profiler", action="store_true")
+parser.add_argument("-a", "--autotuning", type=str, default="")
+parser.add_argument("--fp16", action="store_true")
 args = parser.parse_args()
+
+# Various sanity checks, hacks, and dynamic fixes.
+if len(args.zero_stage) == 1:
+    args.zero_stage = args.zero_stage[0]
+
+
+if args.autotuning:
+    assert args.autotuning in (
+        "tune",
+        "run",
+    ), 'autotuning must be either "tune" or "run", when provided'
 
 if not args.model_name:
     args.model_name = timm_models.get_model_names_from_criteria(model_criteria=args.model_criteria)[
@@ -55,21 +64,19 @@ if not args.model_name:
     ]
 
 # Generate experiment names from command line arguments, if none provided.
-generate_names = args.experiment_name == ""
+generate_exp_names = args.experiment_name == ""
 # Append '_test' to the given workspace name, if --test is set.
 workspace_name = args.workspace + ("_test" if args.test else "")
 # If a non-blank project_name is provided, use that project; otherwise use the dataset_name
 project_name = args.project_name or args.dataset_name
 
+if generate_exp_names:
+    args.experiment_name = f"{args.model_name}"
+
+
 with suppress_stdout():
     client.login(master=args.master, user=args.user, password=args.password)
 
-
-# Safety check for accidentally running a lot of experiments.
-# if not args.no_safety_check and num_experiments >= 100:
-#     confirm = input(f"Submit {num_experiments} experiments? [yes/N]\n")
-#     if confirm != "yes":
-#         sys.exit("Cancelling experiment creation.")
 
 workspace = workspaces.Workspace(
     workspace_name=workspace_name,
@@ -79,93 +86,84 @@ workspace = workspaces.Workspace(
     create_workspace=True,
 )
 workspace.create_project(project_name)
-if args.delete_unvalidated:
-    workspace.delete_experiments_with_unvalidated_trials(
-        projects_to_delete_from=project_name, safe_mode=False
-    )
 
-existing_trials_df = (
-    pd.DataFrame()
-    if args.allow_duplicates
-    else workspace.get_trial_best_val_results_df(project_names=project_name)
-)
 
 base_hps = {
-    "train_batch_size": args.train_batch_size,
-    "val_batch_size": args.val_batch_size,
     "dataset_name": args.dataset_name,
     "model_criteria": args.model_criteria,
+    "model_name": args.model_name,
     "sanity_check": args.sanity_check,
     "checkpoint_path_prefix": args.checkpoint_path_prefix,
-    "lr": None,
-    "model_name": args.model_name,
 }
 
+# The ds_config requires a hack for the `type` key to avoid a conflict with the expected values for
+# a `type` field by the searcher. We just capitalize and lower before processing.
 ds_config = {
-  "train_batch_size": 16,
-  "steps_per_print": 2000,
-  "optimizer": {
-    "type": "Adam",
-    "params": {
-      "lr": 0.001,
-      "betas": [
-        0.8,
-        0.999
-      ],
-      "eps": 1e-8,
-      "weight_decay": 3e-7
-    }
-  },
-  "scheduler": {
-    "type": "WarmupLR",
-    "params": {
-      "warmup_min_lr": 0,
-      "warmup_max_lr": 0.001,
-      "warmup_num_steps": 1000
-    }
-  },
-  "gradient_clipping": 1.0,
-  "prescale_gradients": False,
-  "fp16": {
-      "enabled": True,
-      "fp16_master_weights_and_grads": False,
-      "loss_scale": 0,
-      "loss_scale_window": 500,
-      "hysteresis": 2,
-      "min_loss_scale": 1,
-      "initial_scale_power": 15
-  },
-  "wall_clock_breakdown": False,
-  "zero_optimization": {
-      "stage": 0,
-      "allgather_partitions": True,
-      "reduce_scatter": True,
-      "allgather_bucket_size": 50000000,
-      "reduce_bucket_size": 50000000,
-      "overlap_comm": True,
-      "contiguous_gradients": True,
-      "cpu_offload": False
-  }
+    "train_micro_batch_size_per_gpu": args.train_micro_batch_size_per_gpu,
+    "gradient_accumulation_steps": args.gradient_accumulation_steps,
+    "steps_per_print": 10,
+    "optimizer": {
+        "Type": "Adam",
+        "params": {"lr": args.lr, "betas": [0.8, 0.999], "eps": 1e-8, "weight_decay": 3e-7},
+    },
+    "fp16": {
+        "enabled": args.fp16,
+    },
+    "zero_optimization": {"stage": args.zero_stage},
 }
+
+# Series of optional DeepSpeed configs that can be added in.
+
+flops_profiler = {
+    "enabled": True,
+    "profile_step": 10,
+    "module_depth": -1,
+    "top_modules": 10,
+    "detailed": True,
+    "output_file": None,
+}
+
+if args.flops_profiler:
+    ds_config["flops_profiler"] = flops_profiler
+
+# Autotuning requires various hacks.
+
+autotuning = {"enabled": True}
+
+if args.autotuning:
+    ds_config["autotuning"] = autotuning
+
+entrypoint = "python3 deepspeed_launcher.py"
+if args.autotuning:
+    entrypoint += f" --autotuning={args.autotuning} --"
+    with open("ds_config.json", "w") as f:
+        json.dump(ds_config, f)
+entrypoint += " python3 main_timm.py"
+if args.autotuning:
+    entrypoint += " --deepspeed ds_config.json"
 
 config = {
-    "entrypoint": "python -m determined.launch.deepspeed python3 main_timm.py",
+    "entrypoint": entrypoint,
     "name": args.experiment_name,
     "workspace": workspace_name,
     "project": project_name,
-    "max_restarts": 2,
+    "max_restarts": 0,
     "reproducibility": {"experiment_seed": 42},
-    "resources": {"slots_per_trial": 2},
+    "resources": {"slots_per_trial": args.slots_per_trial},
     "searcher": {
         "name": "single",
-        "max_length": 1,
+        "max_length": args.epochs,
         "metric": "train_top1_acc",
         "smaller_is_better": False,
     },
-    "environment": {"environment_variables": ["OMP_NUM_THREADS=1"]},
-    "hyperparameters": {'ds_config': ds_config},
+    "environment": {
+        "environment_variables": ["OMP_NUM_THREADS=1"],
+        "image": {
+            "gpu": "determinedai/environments:cuda-11.3-pytorch-1.10-lightning-1.5-tf-2.8-deepspeed-0.5.10-gpu-ed66d8a"
+        },
+    },
+    "hyperparameters": {**base_hps, **{"ds_config": ds_config}},
 }
-
 
 
 with suppress_stdout():

@@ -200,7 +200,7 @@ DATASET_METADATA_BY_NAME = {
 }
 
 
-def build_target_transform(path: Optional[str] = None) -> Union[Callable, None]:
+def build_target_transforms(path: Optional[str] = None) -> Union[Callable, None]:
     if path is None:
         return
     with open(path, "rb") as f:
@@ -217,7 +217,7 @@ def get_dataset(
     dataset_metadata = DATASET_METADATA_BY_NAME[dataset_name].to_attrdict()
     if dataset_metadata.dataset_class == MultiTransImageFolder:
         root = dataset_metadata.root + "/" + split
-        target_transform = build_target_transform(dataset_metadata.target_transform_paths[split])
+        target_transform = build_target_transforms(dataset_metadata.target_transform_paths[split])
         dataset = dataset_metadata.dataset_class(
             root=root, transforms=transforms, target_transform=target_transform
         )
@@ -230,13 +230,10 @@ def get_dataset(
     return dataset
 
 
-def build_timm_transforms(model_names: List[str]) -> List[Callable]:
+def build_timm_transforms(model_name: str) -> Callable:
     """Returns a list of timm transforms from a list of timm model names."""
     transform_keys = [arg for arg in signature(timm.data.create_transform).parameters.keys()]
-    transforms = []
-    for name in model_names:
-        cfg = timm.models.get_pretrained_cfg(name)
-        transform_kwargs = {key: cfg[key] for key in transform_keys if key in cfg}
-        transform = timm.data.create_transform(is_training=False, **transform_kwargs)
-        transforms.append(transform)
-    return transforms
+    cfg = timm.models.get_pretrained_cfg(model_name)
+    transform_kwargs = {key: cfg[key] for key in transform_keys if key in cfg}
+    transform = timm.data.create_transform(is_training=False, **transform_kwargs)
+    return transform
