@@ -44,6 +44,8 @@ parser.add_argument("-t", "--test", action="store_true")
 parser.add_argument("-zs", "--zero_stage", type=int, nargs="+", default=[0])
 parser.add_argument("-fl", "--flops_profiler", action="store_true")
 parser.add_argument("-a", "--autotuning", type=str, default="")
+parser.add_argument("-am", "--autotuning_metric", type=str, default="throughput")
+parser.add_argument("-af", "--autotuning_fast", action="store_true")
 parser.add_argument("--fp16", action="store_true")
 args = parser.parse_args()
 
@@ -57,6 +59,11 @@ if args.autotuning:
         "tune",
         "run",
     ), 'autotuning must be either "tune" or "run", when provided'
+    assert args.autotuning_metric in (
+        "latency",
+        "throughput",
+        "FLOPS",
+    ), 'autotuning_metric must be either "latency", "throughput", or "FLOPS"'
 
 if not args.model_name:
     args.model_name = timm_models.get_model_names_from_criteria(model_criteria=args.model_criteria)[
@@ -128,12 +135,16 @@ if args.flops_profiler:
 
 # Autotuning requires various hacks.
 
-autotuning = {"enabled": True}
+autotuning = {
+    "enabled": True,
+    "metric": args.autotuning_metric,
+    "fast": args.autotuning_fast,
+}
 
 if args.autotuning:
     ds_config["autotuning"] = autotuning
 
-entrypoint = "python3 deepspeed_launcher.py"
+entrypoint = "python3 deepspeed_single_node_launcher.py"
 if args.autotuning:
     entrypoint += f" --autotuning={args.autotuning} --"
     with open("ds_config.json", "w") as f:
@@ -159,7 +170,7 @@ config = {
     "environment": {
         "environment_variables": ["OMP_NUM_THREADS=1"],
         "image": {
-            "gpu": "determinedai/environments:cuda-11.3-pytorch-1.10-lightning-1.5-tf-2.8-deepspeed-0.5.10-gpu-ed66d8a"
+            "gpu": "determinedai/environments:cuda-11.3-pytorch-1.10-tf-2.8-deepspeed-0.7.0-gpu-0.19.4"
         },
     },
     "hyperparameters": {**base_hps, **{"ds_config": ds_config}},

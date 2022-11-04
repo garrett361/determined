@@ -261,7 +261,7 @@ def main(override_args: List[str], script: List[str]) -> int:
         # spun up by pdsh.
         pid_server_cmd = create_pid_server_cmd(info.allocation_id, len(info.slot_ids))
 
-        logging.debug(
+        logging.info(
             f"Non-chief [{info.container_rank}] training process launch "
             f"command: {run_sshd_command}."
         )
@@ -297,7 +297,7 @@ def main(override_args: List[str], script: List[str]) -> int:
 
     harness_cmd = script
 
-    logging.debug(f"chief worker calling deepspeed with args: {cmd[1:]} ...")
+    logging.info(f"chief worker calling deepspeed with args: {cmd[1:]} ...")
 
     full_cmd = pid_server_cmd + cmd + pid_client_cmd + log_redirect_cmd + harness_cmd
 

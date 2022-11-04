@@ -40,9 +40,9 @@ class DeepSpeedTrainer(nn.Module):
         self.criterion = nn.CrossEntropyLoss()
 
         self.rank = core_context.distributed.rank
-        self.is_distributed = core_context.distributed.size > 1
         self.is_chief = self.rank == 0
-        self.device = f"cuda:{self.rank}"
+        self.local_rank = core_context.distributed.local_rank
+        self.is_local_chief = self.local_rank == 0
 
         self.steps_completed = 0
 
@@ -52,6 +52,7 @@ class DeepSpeedTrainer(nn.Module):
         self.model_engine = None
         self.optimizer = None
         self.fp16 = None
+        self.device = None
 
         self._setup()
 
@@ -64,7 +65,18 @@ class DeepSpeedTrainer(nn.Module):
         self.train_dataset = data.get_dataset(
             dataset_name=self.dataset_name, split="train", transforms=self.transforms
         )
-        print("DATASET LENGTH", len(self.train_dataset))
+
+    def _deepspeed_init(self) -> None:
+        deepspeed.init_distributed()
+        self.model_engine, self.optimizer, self.train_loader, __ = deepspeed.initialize(
+            model=self.model,
+            model_parameters=self.model.parameters(),
+            training_data=self.train_dataset,
+            config=self.ds_config,
+        )
+        self.fp16 = self.model_engine.fp16_enabled()
+        # DeepSpeed uses the local_rank as the device, for some reason.
+        self.device = self.model_engine.device
 
     def _build_metrics(self) -> None:
         # Create metrics for the various splits.  These all take in outputs, targets pairs as args
@@ -79,21 +91,10 @@ class DeepSpeedTrainer(nn.Module):
                 if metric is not None:
                     metric.to(self.device)
 
-    def _deepspeed_init(self) -> None:
-        deepspeed.init_distributed()
-        self.model_engine, self.optimizer, self.train_loader, __ = deepspeed.initialize(
-            model=self.model,
-            model_parameters=self.model.parameters(),
-            training_data=self.train_dataset,
-            config=self.ds_config,
-        )
-        self.fp16 = self.model_engine.fp16_enabled()
-        print(f"RANK {self.rank} TRAIN_LOADER_LEN {len(self.train_loader)}")
-
     def _setup(self) -> None:
         self._build_datasets()
-        self._build_metrics()
         self._deepspeed_init()
+        self._build_metrics()
 
     def _batch_generator(
         self,
