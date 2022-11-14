@@ -116,6 +116,7 @@ def main(override_args: List[str], script: List[str]) -> int:
         "-o PasswordAuthentication=no -o StrictHostKeyChecking=no "
         f"-p {constants.DTRAIN_SSH_PORT} -2 -a -x %h"
     )
+    os.environ["PDSH_SSH_ARGS_APPEND"] = "-i /run/determined/ssh/id_rsa"
     # Chief worker also needs to run sshd for auto-tuning.
     subprocess.Popen(run_sshd_command)
 

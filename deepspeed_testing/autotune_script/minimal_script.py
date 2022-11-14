@@ -1,4 +1,4 @@
-import json
+import argparse
 
 import torch
 import torch.nn as nn
@@ -7,10 +7,25 @@ from torch.utils.data import Dataset
 
 
 DIM = 2 ** 6
+LAYERS = 16
 NUM_RECORDS = 10 ** 4
 
-with open("ds_config.json") as f:
-    ds_config = json.load(f)
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    # Include DeepSpeed configuration arguments
+    parser = deepspeed.add_config_arguments(parser)
+    # Absorb a possible `local_rank` args from the launcher.
+    parser.add_argument(
+        "--local_rank", type=int, default=-1, help="local rank passed from distributed launcher"
+    )
+
+    args = parser.parse_args()
+
+    return args
+
+
+args = parse_args()
 
 
 def main():
@@ -33,15 +48,20 @@ def main():
     class Net(nn.Module):
         def __init__(self):
             super(Net, self).__init__()
-            self.linear = nn.Linear(DIM, DIM)
+            self.layers = nn.ModuleList([nn.Linear(DIM, DIM) for _ in range(LAYERS)])
 
         def forward(self, x):
-            return self.linear(x)
+            for layer in self.layers:
+                x = layer(x)
+            return x
 
     net = Net()
 
     model_engine, optimizer, trainloader, __ = deepspeed.initialize(
-        model=net, model_parameters=net.parameters(), training_data=trainset, config=ds_config
+        args=args,
+        model=net,
+        model_parameters=net.parameters(),
+        training_data=trainset,
     )
 
     fp16 = model_engine.fp16_enabled()
@@ -54,7 +74,7 @@ def main():
         if fp16:
             inputs = inputs.half()
             labels = labels.half()
-        outputs = net(inputs)
+        outputs = model_engine(inputs)
         loss = criterion(outputs, labels)
 
         model_engine.backward(loss)
