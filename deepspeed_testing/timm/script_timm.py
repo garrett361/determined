@@ -146,7 +146,7 @@ if args.autotuning:
 
 entrypoint = "python3 deepspeed_single_node_launcher.py"
 if args.autotuning:
-    entrypoint += f" --autotuning={args.autotuning} --"
+    entrypoint += f" --autotuning {args.autotuning} --"
     with open("ds_config.json", "w") as f:
         json.dump(ds_config, f)
 entrypoint += " python3 main_timm.py"

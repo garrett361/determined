@@ -83,6 +83,7 @@ def main(override_args: List[str], script: List[str]) -> int:
     info = det.get_cluster_info()
     assert info is not None, "must be run on-cluster"
 
+    # GG: USE_DEEPSPEED env var is used when determining the backend in _trial_controller.py
     os.environ["USE_DEEPSPEED"] = "1"
 
     chief_ip = info.container_addrs[0]
