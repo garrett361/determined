@@ -8,6 +8,6 @@ sed -i 's/level=logging.INFO/level=logging.DEBUG/g' /opt/conda/lib/python3.8/sit
 export PDSH_SSH_ARGS="-o PasswordAuthentication=no -o StrictHostKeyChecking=no -p 12350 -2 -a -x %h"
 export PDSH_SSH_ARGS_APPEND="-i /run/determined/ssh/id_rsa"
 # Start the sshd server in the background
-f
+/usr/sbin/sshd -p 12350 -f /run/determined/ssh/sshd_config -D&
 # Start in the workdir
 echo "cd /run/determined/workdir" >> $HOME/.bash_login
