@@ -316,6 +316,8 @@ def main(override_args: List[str], script: List[str]) -> int:
         "-o PasswordAuthentication=no -o StrictHostKeyChecking=no "
         f"-p {constants.DTRAIN_SSH_PORT} -2 -a -x %h"
     )
+    # Tell PDSH where to find the ssh key.
+    os.environ["PDSH_SSH_ARGS_APPEND"] = "-i /run/determined/ssh/id_rsa"
 
     # Chief worker also needs to run sshd when using pdsh and multi-machine training.
     sshd_process = subprocess.Popen(run_sshd_command)
@@ -345,7 +347,7 @@ def parse_args(args: List[str]) -> Tuple[List[str], List[str]]:
         override_args = []
 
     parser = argparse.ArgumentParser(
-        usage="%(prog)s [[TORCH_OVERRIDES...] --] (--trial TRIAL)|(SCRIPT...)",
+        usage="%(prog)s [[DEEPSPEED_OVERRIDES...] --] (--trial TRIAL)|(SCRIPT...)",
         description=(
             "Launch a script under deepspeed on a Determined cluster, with automatic handling of "
             "IP addresses, sshd containers, and shutdown mechanics."
@@ -388,6 +390,4 @@ def parse_args(args: List[str]) -> Tuple[List[str], List[str]]:
 
 if __name__ == "__main__":
     override_args, script = parse_args(sys.argv[1:])
-    print("OVERRIDE_ARGS", override_args)
-    print("SCRIPT", script)
     sys.exit(main(override_args, script))

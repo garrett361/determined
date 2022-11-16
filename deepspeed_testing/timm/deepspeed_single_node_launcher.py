@@ -23,7 +23,6 @@ def create_launch_cmd(
         master_addr,
         "--master_port",
         str(C10D_PORT),
-        "--no_python",
         "--no_local_rank",
     ]
 
@@ -104,7 +103,9 @@ def main(override_args: List[str], script: List[str]) -> int:
     pid_server_cmd = create_pid_server_cmd(info.allocation_id, len(info.slot_ids))
     pid_client_cmd = create_pid_client_cmd(info.allocation_id)
 
+    # The pid_xxx_cmd and log_redirect_cmd interfere with autotuning, for some reason.
     full_cmd = pid_server_cmd + launch_cmd + pid_client_cmd + log_redirect_cmd + script
+    full_cmd = launch_cmd + script
 
     # All ranks will need to run sshd.
     run_sshd_command = create_sshd_cmd()
@@ -179,4 +180,6 @@ def parse_args(args: List[str]) -> Tuple[List[str], List[str]]:
 
 if __name__ == "__main__":
     override_args, script = parse_args(sys.argv[1:])
-    sys.exit(main(override_args, script))
+    exit_code = main(override_args, script)
+    if exit_code:
+        sys.exit(exit_code)

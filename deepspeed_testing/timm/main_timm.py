@@ -1,21 +1,27 @@
+import argparse
 import logging
 from typing import Any, Dict
 
 import attrdict
 import data
+import deepspeed
 import determined as det
 import trainer
 import timm_models
 
 
-def lower_dict_keys(d: Dict[str, Any]) -> Dict[str, Any]:
-    lower_d = {}
-    for k, v in d.items():
-        if isinstance(v, dict):
-            lower_d[k.lower()] = lower_dict_keys(v)
-        else:
-            lower_d[k.lower()] = v
-    return lower_d
+def parse_args():
+    parser = argparse.ArgumentParser()
+    # Include DeepSpeed configuration arguments
+    parser = deepspeed.add_config_arguments(parser)
+    # Absorb a possible `local_rank` arg from the launcher.
+    parser.add_argument(
+        "--local_rank", type=int, default=-1, help="local rank passed from distributed launcher"
+    )
+
+    args = parser.parse_args()
+
+    return args
 
 
 def main(core_context, hparams: Dict[str, Any], latest_checkpoint: str) -> None:
@@ -24,13 +30,14 @@ def main(core_context, hparams: Dict[str, Any], latest_checkpoint: str) -> None:
         model_name=hparams.model_name, checkpoint_path_prefix=hparams.checkpoint_path_prefix
     )
     transforms = data.build_timm_transforms(model_name=hparams.model_name)
+    args = parse_args()
     ds_trainer = trainer.DeepSpeedTrainer(
-        core_context,
+        core_context=core_context,
         latest_checkpoint=latest_checkpoint,
+        args=args,
         model=model,
         transforms=transforms,
         dataset_name=hparams.dataset_name,
-        ds_config=lower_dict_keys(hparams.ds_config),
         sanity_check=hparams.sanity_check,
     )
     ds_trainer.train()

@@ -1,3 +1,4 @@
+import argparse
 import logging
 import random
 from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Tuple, Union
@@ -18,19 +19,19 @@ class DeepSpeedTrainer(nn.Module):
         self,
         core_context: det.core.Context,
         latest_checkpoint: str,
+        args: argparse.Namespace,
         model: nn.Module,
         transforms: Union[Callable, List[Callable]],
         dataset_name: str,
-        ds_config: Dict[str, Any],
         sanity_check: bool = False,
         random_seed: int = 42,
     ) -> None:
         super().__init__()
         self.core_context = core_context
         self.latest_checkpoint = latest_checkpoint
+        self.args = args
         self.model = model
         self.transforms = transforms
-        self.ds_config = ds_config
         self.dataset_name = dataset_name
         self.sanity_check = sanity_check
         if self.sanity_check:
@@ -69,10 +70,10 @@ class DeepSpeedTrainer(nn.Module):
     def _deepspeed_init(self) -> None:
         deepspeed.init_distributed()
         self.model_engine, self.optimizer, self.train_loader, __ = deepspeed.initialize(
+            args=self.args,
             model=self.model,
             model_parameters=self.model.parameters(),
             training_data=self.train_dataset,
-            config=self.ds_config,
         )
         self.fp16 = self.model_engine.fp16_enabled()
         # DeepSpeed uses the local_rank as the device, for some reason.

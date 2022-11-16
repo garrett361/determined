@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # Include DeepSpeed configuration arguments
     parser = deepspeed.add_config_arguments(parser)
-    # Absorb a possible `local_rank` args from the launcher.
+    # Absorb a possible `local_rank` arg from the launcher.
     parser.add_argument(
         "--local_rank", type=int, default=-1, help="local rank passed from distributed launcher"
     )
@@ -23,9 +23,6 @@ def parse_args():
     args = parser.parse_args()
 
     return args
-
-
-args = parse_args()
 
 
 def main():
@@ -56,7 +53,7 @@ def main():
             return x
 
     net = Net()
-
+    args = parse_args()
     model_engine, optimizer, trainloader, __ = deepspeed.initialize(
         args=args,
         model=net,
