@@ -12,9 +12,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 
-SMALL_TIMM_MODELS_DF = pd.read_feather("models/small_timm_models.feather").set_index("model")
-TOP_TIMM_MODELS_DF = pd.read_feather("models/top_timm_models.feather").set_index("model")
-ALL_MODELS_DF = pd.concat([SMALL_TIMM_MODELS_DF, TOP_TIMM_MODELS_DF])
+ALL_MODELS_DF = pd.read_feather("models/selected_models.feather").set_index("model")
 
 ImageStat = Union[Tuple[float], Tuple[float, float, float]]
 TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]

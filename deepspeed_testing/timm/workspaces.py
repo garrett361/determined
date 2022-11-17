@@ -9,7 +9,23 @@ import pandas as pd
 import requests
 from tqdm.asyncio import tqdm_asyncio
 
-REQ_LIMIT = 2 ** 30
+# For use in a notebook https://stackoverflow.com/a/39662359
+def is_notebook() -> bool:
+    try:
+        # get_ipython is defined when in a notebook environment
+        shell = get_ipython().__class__.__name__
+        return shell == "ZMQInteractiveShell"
+    except NameError:
+        return False  # Probably standard Python interpreter
+
+
+if is_notebook():
+    import nest_asyncio
+
+    nest_asyncio.apply()
+
+
+REQ_LIMIT = 2**30
 
 
 class Workspace:
@@ -258,6 +274,20 @@ class Workspace:
         trial_results_df = pd.DataFrame.from_dict(trial_results_dict, orient="index")
         trial_results_df = trial_results_df[sorted(trial_results_df.columns)]
         return trial_results_df
+
+    def get_all_trials_df(
+        self,
+        project_names: Optional[Union[Sequence[str], Set[str], str]] = None,
+        refresh: bool = False,
+    ) -> Dict[int, Dict[str, Any]]:
+        """Returns a dict summarizing the best validation for trial in the Workspace, indexed by
+        trial ID.  If project_names is provided, only trials from those Projects will be returned,
+        otherwise, all trials in the Workspace will be returned.
+        """
+        trials = self.get_all_trials(project_names, refresh)
+        trials_df = pd.DataFrame.from_dict(trials)
+
+        return trials_df
 
     def _delete_experiment_idxs(self, experiment_idxs: Set[int], desc: str = "") -> None:
         gather_fn_kwargs = (

@@ -1,25 +1,14 @@
-import itertools
-import math
-import random
-from typing import Literal, List, Optional
+from typing import List, Optional
 
 import pandas as pd
 import timm
 import torch.nn as nn
 
-SMALL_TIMM_MODELS_DF = pd.read_feather("models/small_timm_models.feather").set_index("model")
-TOP_TIMM_MODELS_DF = pd.read_feather("models/top_timm_models.feather").set_index("model")
-ALL_MODELS_DF = pd.concat([SMALL_TIMM_MODELS_DF, TOP_TIMM_MODELS_DF])
-
-model_criteria_map = {
-    "small": SMALL_TIMM_MODELS_DF,
-    "top": TOP_TIMM_MODELS_DF,
-    "all": ALL_MODELS_DF,
-}
+ALL_MODELS_DF = pd.read_feather("models/selected_models.feather").set_index("model")
 
 
-def get_model_names_from_criteria(model_criteria: Literal["top", "small", "all"]) -> List[str]:
-    return model_criteria_map[model_criteria].index.to_list()
+def get_model_names() -> List[str]:
+    return ALL_MODELS_DF.index.to_list()
 
 
 def build_timm_model(
