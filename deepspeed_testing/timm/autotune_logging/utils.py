@@ -16,6 +16,8 @@ def upper_case_dict_key(d: Dict[str, Any], key: str) -> Dict[str, Any]:
 
 
 class DSAutotuningResults:
+    """Class for extracting results from DS autotuning dirs."""
+
     def __init__(self, base_path: pathlib.Path) -> None:
         self.base_path = base_path
 
@@ -73,7 +75,7 @@ class DSAutotuningResults:
             "max_restarts": 1,
             "resources": {"slots_per_trial": 0},
             "searcher": {
-                "name": "single",
+                "name": "grid",
                 "max_length": 0,
                 "metric": None,
                 "smaller_is_better": None,
