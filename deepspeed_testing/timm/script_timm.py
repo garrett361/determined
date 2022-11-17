@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument("-u", "--user", type=str, default="determined")
     parser.add_argument("-p", "--password", type=str, default="")
     parser.add_argument("-slots", "--slots_per_trial", type=int, nargs="+", default=[2])
-    parser.add_argument("-dn", "--dataset_name", type=str, default="imagenette2-160")
+    parser.add_argument("-dn", "--dataset_name", type=str, default="mini_imagenet")
     parser.add_argument("-pn", "--project_name", type=str, default="")
     parser.add_argument("-w", "--workspace", type=str, default="DeepSpeed")
     parser.add_argument("-mn", "--model_name", type=str, nargs="+", default=["efficientnet_b0"])
