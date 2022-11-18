@@ -73,7 +73,7 @@ class DSAutotuningResults:
             "name": exp_name + append_to_name,
             "workspace": workspace_name,
             "project": project_name,
-            "max_restarts": 1,
+            "max_restarts": 5,
             "resources": {"slots_per_trial": 0},
             "searcher": {
                 "name": "grid",

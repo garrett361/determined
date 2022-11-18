@@ -103,7 +103,7 @@ def exp_name_and_config_generator(args):
     if args.autotuning_tuner_type == ["all"]:
         args.autotuning_tuner_type = ["gridsearch", "random", "model_based"]
     if args.autotuning_metric == ["all"]:
-        args.autotuning_metric = ["throughput", "latenc y", "FLOPS_per_gpu"]
+        args.autotuning_metric = ["throughput", "latency", "FLOPS_per_gpu"]
     if args.model_name == ["all"]:
         args.model_name = timm_models.get_model_names()
 
