@@ -52,8 +52,8 @@ class DSAutotuningResults:
                 metrics_dict = self._get_dict_from_json_path(path.joinpath("metrics.json"))
                 hp_config["metrics"] = metrics_dict
 
-                ds_config = self._get_dict_from_json_path(path.joinpath("ds_config.json"))
-                hp_config["ds_config"] = ds_config
+                exp_config = self._get_dict_from_json_path(path.joinpath("exp.json"))
+                hp_config["exp_config"] = exp_config
 
                 hp_config = upper_case_dict_key(hp_config, "type")
                 hp_config_list.append(hp_config)
@@ -64,6 +64,7 @@ class DSAutotuningResults:
         workspace_name: str,
         project_name: str,
         exp_name: str,
+        model_name: str,
         entrypoint: str,
         append_to_name: str = ".results",
     ) -> Dict[str, Any]:
@@ -93,7 +94,16 @@ class DSAutotuningResults:
             grid_search_config["searcher"]["metric"] == "latency"
         )
 
-        grid_search_config["hyperparameters"] = {
-            "results": {"type": "categorical", "vals": all_hp_dicts}
+        # Add hp fields
+        model_info_path = self.base_path.joinpath(
+            "autotuning_results/profile_model_info/model_info.json"
+        )
+        model_info = self._get_dict_from_json_path(model_info_path)
+        hp_dict = {
+            "model_name": model_name,
+            "model_info": model_info,
+            "results": {"type": "categorical", "vals": all_hp_dicts},
         }
+        grid_search_config["hyperparameters"] = hp_dict
+
         return grid_search_config

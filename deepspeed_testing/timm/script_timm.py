@@ -42,7 +42,7 @@ def parse_args():
 
     parser.add_argument("-tmbs", "--train_micro_batch_size_per_gpu", type=int, default=128)
     parser.add_argument("-gas", "--gradient_accumulation_steps", type=int, default=1)
-    parser.add_argument("-lr", "--lr", type=float, default=0.001)
+    parser.add_argument("-lr", "--lr", type=float, default=1e-10)
     parser.add_argument("-e", "--epochs", type=int, default=1)
     parser.add_argument("-sc", "--sanity_check", action="store_true")
     parser.add_argument("-t", "--test", action="store_true")
@@ -103,7 +103,7 @@ def exp_name_and_config_generator(args):
     if args.autotuning_tuner_type == ["all"]:
         args.autotuning_tuner_type = ["gridsearch", "random", "model_based"]
     if args.autotuning_metric == ["all"]:
-        args.autotuning_metric = ["throughput", "latency", "FLOPS_per_gpu"]
+        args.autotuning_metric = ["throughput", "latenc y", "FLOPS_per_gpu"]
     if args.model_name == ["all"]:
         args.model_name = timm_models.get_model_names()
 
@@ -213,7 +213,7 @@ def exp_name_and_config_generator(args):
             entrypoint += (
                 f"python3 -m determined.launch.torch_distributed python3 "
                 f"./autotune_logging/ds_autotune_logger.py --last_exit_code $? -w {workspace_name} "
-                f"-p {project_name} -e {exp_name}"
+                f"-p {project_name} -e {exp_name} -m {model_name}"
             )
 
         config = {

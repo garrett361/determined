@@ -16,6 +16,8 @@ def get_parsed_args():
     parser.add_argument("-w", "--workspace_name", type=str)
     parser.add_argument("-p", "--project_name", type=str)
     parser.add_argument("-e", "--exp_name", type=str)
+    parser.add_argument("-m", "--model_name", type=str)
+
     parsed_args = parser.parse_args()
 
     return parsed_args
@@ -37,6 +39,7 @@ def main(core_context: det.core.Context, args: argparse.Namespace) -> None:
             workspace_name=args.workspace_name,
             project_name=args.project_name,
             exp_name=args.exp_name,
+            model_name = args.model_name,
             entrypoint="python3 single_ds_logger_exp.py",
         )
         create_experiment(config=grid_search_config, model_dir="./autotune_logging")
