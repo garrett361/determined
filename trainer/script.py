@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+import os
+
 from determined.experimental import client
 
-MASTER = "http://127.0.0.1:8080"
+MASTER = os.environ.get("DET_MASTER", "http://127.0.0.1:8080")
 USER = "determined"
 PASSWORD = ""
 
@@ -30,7 +32,7 @@ config = {
     "name": "mnist_pytorch_core_api",
     "max_restarts": 0,
     "reproducibility": {"experiment_seed": 42},
-    "resources": {"slots_per_trial": 1},
+    "resources": {"slots_per_trial": 2},
     "searcher": {"name": "single", "max_length": 3, "metric": "val_loss"},
     "environment": {"environment_variables": ["OMP_NUM_THREADS=1"]},
     "hyperparameters": {
