@@ -10,7 +10,7 @@ import pandas as pd
 
 import timm_models
 import workspaces
-from autotune_logging import utils
+import utils
 
 
 @contextlib.contextmanager
@@ -212,7 +212,7 @@ def exp_name_and_config_generator(args):
         if args.autotuning:
             entrypoint += (
                 f"python3 -m determined.launch.torch_distributed python3 "
-                f"./autotune_logging/ds_autotune_logger.py --last_exit_code $? -w {workspace_name} "
+                f"ds_autotune_logger.py --last_exit_code $? -w {workspace_name} "
                 f"-p {project_name} -e {exp_name} -m {model_name}"
             )
 

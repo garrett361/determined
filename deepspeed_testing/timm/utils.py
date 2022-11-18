@@ -87,9 +87,9 @@ class DSAutotuningResults:
         all_hp_dicts = self._get_hp_config_list_from_results_dir()
 
         # Dynamically set some fields in the base config
-        grid_search_config["searcher"]["metric"] = all_hp_dicts[0]["ds_config"]["autotuning"][
-            "metric"
-        ]
+        grid_search_config["searcher"]["metric"] = all_hp_dicts[0]["exp_config"]["ds_config"][
+            "autotuning"
+        ]["metric"]
         grid_search_config["searcher"]["smaller_is_better"] = (
             grid_search_config["searcher"]["metric"] == "latency"
         )
