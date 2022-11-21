@@ -7,7 +7,7 @@ import data
 import deepspeed
 import determined as det
 import trainer
-import timm_models
+import models
 
 
 def parse_args():
@@ -26,7 +26,7 @@ def parse_args():
 
 def main(core_context, hparams: Dict[str, Any], latest_checkpoint: str) -> None:
     hparams = attrdict.AttrDict(hparams)
-    model = timm_models.build_timm_model(
+    model = models.build_timm_model(
         model_name=hparams.model_name, checkpoint_path_prefix=hparams.checkpoint_path_prefix
     )
     transforms = data.build_timm_transforms(model_name=hparams.model_name)

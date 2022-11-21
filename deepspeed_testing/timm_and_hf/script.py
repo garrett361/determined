@@ -8,9 +8,25 @@ import sys
 from determined.experimental import client
 import pandas as pd
 
-import timm_models
+import models
 import workspaces
 import utils
+
+DS_CONFIG_PATH = "ds_config.json"
+
+AUTOTUNINGS = {"tune", "run"}
+METRICS = {"latency", "throughput", "FLOPS_per_gpu"}
+TASKS = {"timm", "hf_glue", "hf_clm"}
+TUNER_TYPES = {"gridsearch", "random", "model_based"}
+
+DEFAULT_MODELS = {
+    "timm": ["efficientnet_b0"],
+    "hf_glue": ["distilbert-base-uncased"],
+    "hf_clm": ["gpt2"],
+}
+DEFAULT_DATASETS = {"timm": "mini_imagenet", "hf_glue": "mnli", "hf_clm": "wikitext"}
+
+FLOPS_PROFILER_OUTPUT_PATH = "/run/determined/workdir/shared_fs/flops_profiler_output.txt"
 
 
 @contextlib.contextmanager
@@ -26,15 +42,15 @@ def suppress_stdout():
 
 def parse_args():
 
-    parser = argparse.ArgumentParser(description="ImageNet DeepSpeedTrainer Loops")
+    parser = argparse.ArgumentParser(description="HF GLUE DeepSpeedTrainer Loops")
     parser.add_argument("-m", "--master", type=str, default="localhost:8080")
     parser.add_argument("-u", "--user", type=str, default="determined")
     parser.add_argument("-p", "--password", type=str, default="")
     parser.add_argument("-slots", "--slots_per_trial", type=int, nargs="+", default=[2])
-    parser.add_argument("-dn", "--dataset_name", type=str, default="mini_imagenet")
-    parser.add_argument("-pn", "--project_name", type=str, default="")
+    parser.add_argument("-dn", "--dataset_name", type=str)
+    parser.add_argument("-pn", "--project_name", type=str)
     parser.add_argument("-w", "--workspace", type=str, default="DeepSpeed")
-    parser.add_argument("-mn", "--model_name", type=str, nargs="+", default=["efficientnet_b0"])
+    parser.add_argument("-mn", "--model_name", type=str, nargs="+")
     parser.add_argument(
         "-cpp", "--checkpoint_path_prefix", type=str, default="shared_fs/ensembles/state_dicts/"
     )
@@ -47,7 +63,7 @@ def parse_args():
     parser.add_argument("-sc", "--sanity_check", action="store_true")
     parser.add_argument("-t", "--test", action="store_true")
     parser.add_argument("-zs", "--zero_stage", type=int, nargs="+", default=[0])
-    parser.add_argument("-fl", "--flops_profiler", action="store_true")
+    parser.add_argument("-prof", "--flops_profiler", action="store_true")
     parser.add_argument("--fp16", action="store_true")
     parser.add_argument("-a", "--autotuning", type=str, default="")
     parser.add_argument("-am", "--autotuning_metric", type=str, nargs="+", default=["throughput"])
@@ -58,6 +74,8 @@ def parse_args():
     parser.add_argument("-ant", "--autotuning_num_trials", type=int, default=50)
     parser.add_argument("-aes", "--autotuning_tuner_early_stopping", type=int, default=5)
 
+    parser.add_argument("--task", type=str)
+
     args = parser.parse_args()
     return args
 
@@ -67,6 +85,23 @@ def exp_name_and_config_generator(args):
     Loops over provided autotuning_tuner_type and autotuning_metric values and yields
     exp_name, config tuples.
     """
+    # Initial sanity checks
+    # Various sanity checks, hacks, and dynamic fixes.
+    assert args.task in TASKS, f"Task must be one of {TASKS}"
+    if not args.autotuning and len(args.zero_stage) == 1:
+        args.zero_stage = args.zero_stage[0]
+    assert not (
+        args.autotuning and args.flops_profiler
+    ), 'Cannot use both "autotuning" and "flops_profiler"'
+
+    if args.autotuning:
+        assert args.autotuning in AUTOTUNINGS, f"autotuning must be one of {AUTOTUNINGS}"
+
+    if not args.dataset_name:
+        args.dataset_name = DEFAULT_DATASETS[args.task]
+    if not args.model_name:
+        args.model_name = DEFAULT_MODELS[args.task]
+
     # Generate experiment names from command line arguments
     # Append '_test' to the given workspace name, if --test is set.
     workspace_name = args.workspace + ("_test" if args.test else "")
@@ -101,34 +136,19 @@ def exp_name_and_config_generator(args):
 
     # Check for "all" in autotuning_tuner_type and autotuning_metric
     if args.autotuning_tuner_type == ["all"]:
-        args.autotuning_tuner_type = ["gridsearch", "random", "model_based"]
+        args.autotuning_tuner_type = TUNER_TYPES
     if args.autotuning_metric == ["all"]:
-        args.autotuning_metric = ["throughput", "latency", "FLOPS_per_gpu"]
+        args.autotuning_metric = METRICS
     if args.model_name == ["all"]:
-        args.model_name = timm_models.get_model_names()
+        args.model_name = models.get_model_names(args.task)
 
     for model_name, tuner_type, metric, slots_per_trial in itertools.product(
         args.model_name, args.autotuning_tuner_type, args.autotuning_metric, args.slots_per_trial
     ):
         # Various sanity checks, hacks, and dynamic fixes.
-        if not args.autotuning and len(args.zero_stage) == 1:
-            args.zero_stage = args.zero_stage[0]
-
         if args.autotuning:
-            assert args.autotuning in (
-                "tune",
-                "run",
-            ), 'autotuning must be either "tune" or "run", when provided'
-            assert metric in (
-                "latency",
-                "throughput",
-                "FLOPS_per_gpu",
-            ), f'autotuning_metric must be either "latency", "throughput", or "FLOPS_per_gpu", not {metric}'
-            assert tuner_type in (
-                "gridsearch",
-                "random",
-                "model_based",
-            ), f'autotuning_tuner_type must be either "gridsearch", "random", "model_based", not {tuner_type}'
+            assert metric in METRICS, f"metric must be one of {METRICS}"
+            assert tuner_type in TUNER_TYPES, f"tuner_type must be one of {TUNER_TYPES}"
 
         # Generate a useful experiment name dynamically
         exp_name = f"{model_name}"
@@ -152,25 +172,29 @@ def exp_name_and_config_generator(args):
         }
 
         # The native ds_config requires `type` key for various entries which conflicts with
-        # the special behavior for the `type` key with our searcher.  We write the ds_config.json
+        # the special behavior for the `type` key with our searcher.  We write the DS_CONFIG_PATH
         # file with the lower case type and also log the ds_config as part of the HPs with upper-cased TYPE
         # keys for easier Web UI tracking.
-
+        train_micro_batch_size_per_gpu = (
+            args.train_micro_batch_size_per_gpu if args.task == "timm" else "auto"
+        )
+        fp16 = (
+            {
+                "enabled": args.fp16,
+            }
+            if args.task == "timm"
+            else "auto"
+        )
         ds_config = {
-            "train_micro_batch_size_per_gpu": args.train_micro_batch_size_per_gpu,
+            "train_micro_batch_size_per_gpu": train_micro_batch_size_per_gpu,
             "gradient_accumulation_steps": args.gradient_accumulation_steps,
             "optimizer": {
                 "type": "Adam",
                 "params": {
                     "lr": args.lr,
-                    "betas": [0.8, 0.999],
-                    "eps": 1e-8,
-                    "weight_decay": 3e-7,
                 },
             },
-            "fp16": {
-                "enabled": args.fp16,
-            },
+            "fp16": fp16,
             "zero_optimization": {"stage": args.zero_stage},
         }
 
@@ -181,7 +205,7 @@ def exp_name_and_config_generator(args):
             "module_depth": -1,
             "top_modules": 10,
             "detailed": True,
-            "output_file": None,
+            "output_file": FLOPS_PROFILER_OUTPUT_PATH,
         }
 
         autotuning = {
@@ -199,20 +223,63 @@ def exp_name_and_config_generator(args):
         if args.autotuning:
             ds_config["autotuning"] = autotuning
 
-        with open("ds_config.json", "w") as f:
+        with open(DS_CONFIG_PATH, "w") as f:
             json.dump(ds_config, f)
 
         # Perform the case hack explained above.
         ds_config = utils.upper_case_dict_key(ds_config, "type")
 
-        entrypoint = "python3 deepspeed_single_node_launcher.py"
+        entrypoint = "python3 deepspeed_single_node_launcher.py "
         if args.autotuning:
-            entrypoint += f" --autotuning {args.autotuning} --"
-        entrypoint += " main_timm.py --deepspeed_config ds_config.json;"
+            entrypoint += f"--autotuning {args.autotuning} -- "
+
+        run_glue_cmd_list = [
+            f"shared_fs/transformers/examples/pytorch/text-classification/run_glue.py --deepspeed {DS_CONFIG_PATH}",
+            f"--model_name_or_path {model_name}",
+            f"--task_name {args.dataset_name}",
+            "--do_train",
+            "--max_seq_length 128",
+            f"--learning_rate {args.lr} ",
+            f"--num_train_epochs {args.epochs}",
+            f"--output_dir ./output_dir",
+            "--save_steps 0",
+            "--overwrite_output_dir;",
+        ]
+
+        run_clm_cmd_list = [
+            f"shared_fs/transformers/examples/pytorch/language-modeling/run_clm.py --deepspeed {DS_CONFIG_PATH}",
+            f"--model_name_or_path {model_name}",
+            f"--dataset_name {args.dataset_name}",
+            "--dataset_config_name wikitext-2-raw-v1",
+            "--do_train",
+            "--fp16" if args.fp16 else "",
+            f"--learning_rate {args.lr} ",
+            f"--num_train_epochs {args.epochs}",
+            f"--output_dir ./output_dir",
+            "--save_steps 0",
+            "--overwrite_output_dir",
+            '--save_strategy "no";',
+        ]
+
+        run_timm_cmd_list = ["main_timm.py", "--deepspeed_config", "ds_config.json;"]
+
+        cmd_list_dict = {
+            "timm": run_timm_cmd_list,
+            "hf_glue": run_glue_cmd_list,
+            "hf_clm": run_clm_cmd_list,
+        }
+
+        entrypoint += " ".join(cmd_list_dict[args.task])
         if args.autotuning:
             entrypoint += (
-                f"python3 -m determined.launch.torch_distributed python3 "
+                f" python3 -m determined.launch.torch_distributed python3 "
                 f"ds_autotune_logger.py --last_exit_code $? -w {workspace_name} "
+                f"-p {project_name} -e {exp_name} -m {model_name}"
+            )
+        if args.flops_profiler:
+            entrypoint += (
+                f" python3 -m determined.launch.torch_distributed python3 "
+                f"ds_profiler_logger.py --last_exit_code $? -w {workspace_name} "
                 f"-p {project_name} -e {exp_name} -m {model_name}"
             )
 

@@ -351,8 +351,10 @@ class Workspace:
         gather_fn: Callable,
         gather_fn_kwargs: Generator[Dict[str, Any], None, None],
         desc: str = "",
+        timeout_total: int = 600,
     ) -> List[Dict[str, Any]]:
-        async with aiohttp.ClientSession(headers=self._headers) as session:
+        timeout = aiohttp.ClientTimeout(total=timeout_total)
+        async with aiohttp.ClientSession(headers=self._headers, timeout=timeout) as session:
             output = await tqdm_asyncio.gather(
                 *(gather_fn(session, **kwarg) for kwarg in gather_fn_kwargs),
                 desc=desc,
