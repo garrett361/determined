@@ -18,7 +18,6 @@ def parse_args():
     parser.add_argument(
         "--local_rank", type=int, default=-1, help="local rank passed from distributed launcher"
     )
-    parser.add_argument("-fmbs", "--find_max_batch_size", action="store_true")
 
     args = parser.parse_args()
 
@@ -32,29 +31,16 @@ def main(core_context, hparams: Dict[str, Any], latest_checkpoint: str) -> None:
     )
     transforms = data.build_timm_transforms(model_name=hparams.model_name)
     args = parse_args()
-    print(args)
-    if args.find_max_batch_size:
-        max_batch_size = trainer.DeepSpeedTrainer.find_max_batch_size(
-            core_context=core_context,
-            latest_checkpoint=latest_checkpoint,
-            args=args,
-            model=model,
-            transforms=transforms,
-            dataset_name=hparams.dataset_name,
-            sanity_check=hparams.sanity_check,
-        )
-        print(f"Max batch size: {max_batch_size}")
-    else:
-        ds_trainer = trainer.DeepSpeedTrainer(
-            core_context=core_context,
-            latest_checkpoint=latest_checkpoint,
-            args=args,
-            model=model,
-            transforms=transforms,
-            dataset_name=hparams.dataset_name,
-            sanity_check=hparams.sanity_check,
-        )
-        ds_trainer.train()
+    max_batch_size = trainer.DeepSpeedTrainer.find_max_batch_size(
+        max_retries=3,
+        core_context=core_context,
+        latest_checkpoint=latest_checkpoint,
+        args=args,
+        model=model,
+        transforms=transforms,
+        dataset_name=hparams.dataset_name,
+        sanity_check=hparams.sanity_check,
+    )
 
 
 if __name__ == "__main__":

@@ -8,12 +8,11 @@ from determined.experimental.client import create_experiment
 
 import utils
 
-from script import FLOPS_PROFILER_OUTPUT_PATH
+from constants import FLOPS_PROFILER_OUTPUT_PATH
 
 
 def get_parsed_args():
     parser = argparse.ArgumentParser()
-    # Absorb a possible `local_rank` arg from the launcher.
     parser.add_argument("--last_exit_code", type=int)
     parser.add_argument("-w", "--workspace_name", type=str)
     parser.add_argument("-p", "--project_name", type=str)

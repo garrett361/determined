@@ -1,4 +1,6 @@
 import argparse
+import gc
+import json
 import logging
 import random
 from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Tuple, Union
@@ -12,6 +14,8 @@ import torchmetrics
 from determined.pytorch import TorchData
 
 import data
+
+from constants import DS_CONFIG_PATH
 
 
 class DeepSpeedTrainer(nn.Module):
@@ -100,7 +104,7 @@ class DeepSpeedTrainer(nn.Module):
     def _batch_generator(
         self,
         split: Literal["train", "val", "test"],
-    ) -> Generator[Tuple[List[torch.Tensor], torch.Tensor, int], None, None]:
+    ) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
         loader_dict = {
             "train": self.train_loader,
         }
@@ -181,3 +185,52 @@ class DeepSpeedTrainer(nn.Module):
                     return
             if self.is_chief:
                 op.report_completed(0)
+
+    @staticmethod
+    def update_tmbspg_in_args_and_config(
+        train_micro_batch_size_per_gpu: int, args: argparse.Namespace, path: str = DS_CONFIG_PATH
+    ) -> None:
+        args.train_micro_batch_size_per_gpu = train_micro_batch_size_per_gpu
+        with open(path, "r") as f:
+            old_config = json.load(f)
+        old_config["train_micro_batch_size_per_gpu"] = train_micro_batch_size_per_gpu
+        with open(path, "w") as f:
+            json.dump(old_config, f)
+
+    @classmethod
+    def find_max_batch_size(
+        cls, max_retries: int = 5, initial_batch_size: int = 128, **kwargs
+    ) -> int:
+        lo, hi = initial_batch_size // 2, initial_batch_size * 2
+        retries = 0
+        batch_size = 0
+        while retries <= max_retries:
+            mid = (lo + hi) // 2
+            try:
+                cls.update_tmbspg_in_args_and_config(
+                    train_micro_batch_size_per_gpu=mid, args=kwargs["args"]
+                )
+                trainer = cls(**kwargs)
+                inputs, targets = next(trainer._batch_generator(split="train"))
+                trainer._train_one_batch(batch_idx=0, inputs=inputs, targets=targets)
+                batch_size = mid
+                logging.info(80 * "$")
+                logging.info(f"Batch size {batch_size} works.")
+                logging.info(80 * "$")
+                if not retries:
+                    lo, hi = lo * 2, hi * 2
+                else:
+                    lo = mid + 1
+            except RuntimeError as e:
+                logging.warning(f'RuntimeError: "{e}"')
+                if mid in (0, 1):
+                    # Cannot process any batches without erroring.
+                    return 0
+                retries += 1
+                hi = mid
+            finally:
+                del trainer
+                gc.collect()
+                torch.cuda.empty_cache()
+                if retries > max_retries or lo == hi:
+                    return batch_size

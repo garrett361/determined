@@ -12,21 +12,16 @@ import models
 import workspaces
 import utils
 
-DS_CONFIG_PATH = "ds_config.json"
-
-AUTOTUNINGS = {"tune", "run"}
-METRICS = {"latency", "throughput", "FLOPS_per_gpu"}
-TASKS = {"timm", "hf_glue", "hf_clm"}
-TUNER_TYPES = {"gridsearch", "random", "model_based"}
-
-DEFAULT_MODELS = {
-    "timm": ["efficientnet_b0"],
-    "hf_glue": ["distilbert-base-uncased"],
-    "hf_clm": ["gpt2"],
-}
-DEFAULT_DATASETS = {"timm": "mini_imagenet", "hf_glue": "mnli", "hf_clm": "wikitext"}
-
-FLOPS_PROFILER_OUTPUT_PATH = "/run/determined/workdir/shared_fs/flops_profiler_output.txt"
+from constants import (
+    AUTOTUNINGS,
+    DEFAULT_DATASETS,
+    DEFAULT_MODELS,
+    DS_CONFIG_PATH,
+    FLOPS_PROFILER_OUTPUT_PATH,
+    METRICS,
+    TASKS,
+    TUNER_TYPES,
+)
 
 
 @contextlib.contextmanager
@@ -74,6 +69,7 @@ def parse_args():
     parser.add_argument("-ant", "--autotuning_num_trials", type=int, default=50)
     parser.add_argument("-aes", "--autotuning_tuner_early_stopping", type=int, default=5)
 
+    parser.add_argument("-fmbs", "--find_max_batch_size", action="store_true")
     parser.add_argument("--task", type=str)
 
     args = parser.parse_args()
@@ -90,9 +86,10 @@ def exp_name_and_config_generator(args):
     assert args.task in TASKS, f"Task must be one of {TASKS}"
     if not args.autotuning and len(args.zero_stage) == 1:
         args.zero_stage = args.zero_stage[0]
-    assert not (
-        args.autotuning and args.flops_profiler
-    ), 'Cannot use both "autotuning" and "flops_profiler"'
+    test = [bool(x) for x in (args.autotuning, args.flops_profiler, args.find_max_batch_size)]
+    assert (
+        sum(test) == 1
+    ), f"Only one of autotuning, flops_profiler, find_max_batch_size can be set. {test}"
 
     if args.autotuning:
         assert args.autotuning in AUTOTUNINGS, f"autotuning must be one of {AUTOTUNINGS}"
@@ -106,7 +103,9 @@ def exp_name_and_config_generator(args):
     # Append '_test' to the given workspace name, if --test is set.
     workspace_name = args.workspace + ("_test" if args.test else "")
     # If a non-blank project_name is provided, use that project; otherwise use the dataset_name
-    project_name = args.project_name or args.dataset_name
+    project_name = args.project_name or (
+        args.dataset_name + ("_profiled" if args.flops_profiler else "")
+    )
     with suppress_stdout():
         client.login(master=args.master, user=args.user, password=args.password)
 
@@ -151,7 +150,7 @@ def exp_name_and_config_generator(args):
             assert tuner_type in TUNER_TYPES, f"tuner_type must be one of {TUNER_TYPES}"
 
         # Generate a useful experiment name dynamically
-        exp_name = f"{model_name}"
+        exp_name = model_name
         if args.fp16:
             exp_name += ".fp16"
         if args.autotuning_fast:
@@ -178,13 +177,6 @@ def exp_name_and_config_generator(args):
         train_micro_batch_size_per_gpu = (
             args.train_micro_batch_size_per_gpu if args.task == "timm" else "auto"
         )
-        fp16 = (
-            {
-                "enabled": args.fp16,
-            }
-            if args.task == "timm"
-            else "auto"
-        )
         ds_config = {
             "train_micro_batch_size_per_gpu": train_micro_batch_size_per_gpu,
             "gradient_accumulation_steps": args.gradient_accumulation_steps,
@@ -194,9 +186,12 @@ def exp_name_and_config_generator(args):
                     "lr": args.lr,
                 },
             },
-            "fp16": fp16,
             "zero_optimization": {"stage": args.zero_stage},
         }
+        if args.task == "timm":
+            ds_config["fp16"] = {
+                "enabled": args.fp16,
+            }
 
         # Series of optional DeepSpeed configs that can be added in.
         flops_profiler = {
@@ -234,6 +229,7 @@ def exp_name_and_config_generator(args):
             entrypoint += f"--autotuning {args.autotuning} -- "
 
         run_glue_cmd_list = [
+            "./startup-hook_hf_extras.sh",
             f"shared_fs/transformers/examples/pytorch/text-classification/run_glue.py --deepspeed {DS_CONFIG_PATH}",
             f"--model_name_or_path {model_name}",
             f"--task_name {args.dataset_name}",
@@ -247,6 +243,7 @@ def exp_name_and_config_generator(args):
         ]
 
         run_clm_cmd_list = [
+            "./startup-hook_hf_extras.sh",
             f"shared_fs/transformers/examples/pytorch/language-modeling/run_clm.py --deepspeed {DS_CONFIG_PATH}",
             f"--model_name_or_path {model_name}",
             f"--dataset_name {args.dataset_name}",
@@ -261,7 +258,11 @@ def exp_name_and_config_generator(args):
             '--save_strategy "no";',
         ]
 
-        run_timm_cmd_list = ["main_timm.py", "--deepspeed_config", "ds_config.json;"]
+        run_timm_cmd_list = [
+            "main_timm.py",
+            f"{'-fmbs' if args.find_max_batch_size else ''}",
+            f"--deepspeed_config {DS_CONFIG_PATH};",
+        ]
 
         cmd_list_dict = {
             "timm": run_timm_cmd_list,

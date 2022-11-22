@@ -124,9 +124,9 @@ class DSProfilerResults:
 
     def _get_results_dict_from_path(self) -> Dict[str, float]:
         naming_map = {
-            "iter latency": "latency",
-            "FLOPS per GPU": "FLOPS_per_gpu",
-            "samples/second": "throughput",
+            "iter latency": "latency_s",
+            "FLOPS per GPU": "FLOPS_per_gpu_corrected",
+            "samples/second": "throughput_s",
         }
         results_dict = {}
         with open(self.path, "r") as output:
@@ -156,13 +156,13 @@ class DSProfilerResults:
             "searcher": {
                 "name": "single",
                 "max_length": 0,
-                "metric": None,
+                "metric": "none",
             },
             "hyperparameters": None,
         }
 
         results_dict = self._get_results_dict_from_path()
 
-        config["hyperparameters"] = {"results": results_dict}
+        config["hyperparameters"] = {"results": results_dict, "profiled": True}
 
         return config
