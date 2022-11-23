@@ -3,14 +3,13 @@ import gc
 import json
 import logging
 import random
-from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Generator, List, Literal, Tuple, Union
 
 import determined as det
 import deepspeed
 import numpy as np
 import torch
 import torch.nn as nn
-import torchmetrics
 from determined.pytorch import TorchData
 
 import data
@@ -83,23 +82,9 @@ class DeepSpeedTrainer(nn.Module):
         # DeepSpeed uses the local_rank as the device, for some reason.
         self.device = self.model_engine.device
 
-    def _build_metrics(self) -> None:
-        # Create metrics for the various splits.  These all take in outputs, targets pairs as args
-        # where outputs are either probabilities or single predictions.
-        self.metrics = {"train": {}, "val": {}, "test": {}}
-        # Metrics for all
-        for split, met_dic in self.metrics.items():
-            for k in range(1, 11):
-                met_dic[f"{split}_top{k}_acc"] = torchmetrics.Accuracy(top_k=k)
-        for vals in self.metrics.values():
-            for metric in vals.values():
-                if metric is not None:
-                    metric.to(self.device)
-
     def _setup(self) -> None:
         self._build_datasets()
         self._deepspeed_init()
-        self._build_metrics()
 
     def _batch_generator(
         self,
@@ -117,52 +102,11 @@ class DeepSpeedTrainer(nn.Module):
             targets = targets.to(self.device)
             yield inputs, targets
 
-    def _update_metrics(
-        self, outputs: torch.Tensor, targets: torch.Tensor, split: Literal["train", "val", "test"]
-    ) -> None:
-        """The outputs input is expected to either be probabilities or single predictions."""
-        for metric in self.metrics[split].values():
-            metric.update(outputs, targets)
-
-    def _get_computed_metrics(self, split: Literal["train", "val", "test"]) -> Dict[str, Any]:
-        computed_metrics = {
-            name: metric.compute().item() for name, metric in self.metrics[split].items()
-        }
-        return computed_metrics
-
-    def _reset_metrics(self, split: Literal["train", "val", "test"]) -> None:
-        for metric in self.metrics[split].values():
-            metric.reset()
-
-    def _report_metrics(
-        self,
-        metrics_dict: Dict[str, Any],
-        split: Literal["train", "val", "test"],
-    ) -> None:
-        # Remove any None-valued metrics with a warning (these would throw errors). Include other
-        # relevant data as needed.
-        for key in list(metrics_dict):
-            if metrics_dict[key] is None:
-                logging.warning(f"Removing metric {key} whose value is None.")
-                metrics_dict.pop(key)
-        if split == "train":
-            report_fn = self.core_context.train.report_training_metrics
-        else:
-            report_fn = self.core_context.train.report_validation_metrics
-        report_fn(steps_completed=self.steps_completed, metrics=metrics_dict)
-
-    def _restore(self) -> None:
-        return
-
-    def _save(self) -> None:
-        return
-
     def _train_one_batch(self, batch_idx: int, inputs: TorchData, targets: TorchData) -> None:
         outputs = self.model_engine(inputs)
         loss = self.criterion(outputs, targets)
         self.model_engine.backward(loss)
         self.model_engine.step()
-        self._update_metrics(outputs=outputs, targets=targets, split="train")
 
     def train(self) -> None:
         if self.latest_checkpoint is not None:
@@ -174,23 +118,15 @@ class DeepSpeedTrainer(nn.Module):
                 self.steps_completed += 1
                 if self.is_chief:
                     op.report_progress(self.steps_completed)
-                # Reporting metrics once per epoch, for simplicity.
-                train_metrics_dict = self._get_computed_metrics(split="train")
-                if self.is_chief:
-                    self._report_metrics(metrics_dict=train_metrics_dict, split="train")
-                self._reset_metrics(split="train")
-                if self.is_chief:
-                    self._save()
                 if self.core_context.preempt.should_preempt():
                     return
             if self.is_chief:
                 op.report_completed(0)
 
     @staticmethod
-    def update_tmbspg_in_args_and_config(
-        train_micro_batch_size_per_gpu: int, args: argparse.Namespace, path: str = DS_CONFIG_PATH
+    def update_tmbspg_in_config(
+        train_micro_batch_size_per_gpu: int, path: str = DS_CONFIG_PATH
     ) -> None:
-        args.train_micro_batch_size_per_gpu = train_micro_batch_size_per_gpu
         with open(path, "r") as f:
             old_config = json.load(f)
         old_config["train_micro_batch_size_per_gpu"] = train_micro_batch_size_per_gpu
@@ -199,38 +135,53 @@ class DeepSpeedTrainer(nn.Module):
 
     @classmethod
     def find_max_batch_size(
-        cls, max_retries: int = 5, initial_batch_size: int = 128, **kwargs
+        cls, max_fails: int = 3, initial_batch_size: int = 1, batches_to_train: int = 2, **kwargs
     ) -> int:
-        lo, hi = initial_batch_size // 2, initial_batch_size * 2
-        retries = 0
+        lo, hi = 1, 2 * initial_batch_size
+        fails = 0
         batch_size = 0
-        while retries <= max_retries:
+        while fails <= max_fails:
             mid = (lo + hi) // 2
+            trainer = None
+            core_context = kwargs["core_context"]
+            is_chief = core_context.distributed.rank == 0
             try:
-                cls.update_tmbspg_in_args_and_config(
-                    train_micro_batch_size_per_gpu=mid, args=kwargs["args"]
-                )
+                if is_chief:
+                    cls.update_tmbspg_in_config(train_micro_batch_size_per_gpu=mid)
+                kwargs["args"].train_micro_batch_size_per_gpu = mid
+                core_context.distributed.broadcast(None)  # Hack for syncing.
                 trainer = cls(**kwargs)
-                inputs, targets = next(trainer._batch_generator(split="train"))
-                trainer._train_one_batch(batch_idx=0, inputs=inputs, targets=targets)
-                batch_size = mid
-                logging.info(80 * "$")
-                logging.info(f"Batch size {batch_size} works.")
-                logging.info(80 * "$")
-                if not retries:
-                    lo, hi = lo * 2, hi * 2
-                else:
+                # Instantiation may fail, in which case trainer is still None.
+                if trainer is not None:
+                    torch.cuda.synchronize()
+                    for _ in range(batches_to_train):
+                        inputs, targets = next(trainer._batch_generator(split="train"))
+                        trainer._train_one_batch(batch_idx=0, inputs=inputs, targets=targets)
+                    batch_size = mid
+                    if trainer.is_chief:
+                        logging.info(80 * "$")
+                        logging.info(f"Batch size {batch_size} successful.")
+                        logging.info(80 * "$")
                     lo = mid + 1
+                    if not fails:
+                        hi = hi * 2
             except RuntimeError as e:
                 logging.warning(f'RuntimeError: "{e}"')
-                if mid in (0, 1):
+                if is_chief:
+                    logging.info(80 * "-")
+                    logging.info(f"Batch size {mid} FAILED.")
+                    logging.info(80 * "-")
+                if mid == 0 or (mid == 1 and fails):
                     # Cannot process any batches without erroring.
                     return 0
-                retries += 1
+                fails += 1
                 hi = mid
             finally:
+                logging.info(torch.cuda.memory_allocated())
                 del trainer
                 gc.collect()
+                torch.cuda.synchronize()
                 torch.cuda.empty_cache()
-                if retries > max_retries or lo == hi:
+                logging.info(torch.cuda.memory_allocated())
+                if fails > max_fails or lo == hi:
                     return batch_size

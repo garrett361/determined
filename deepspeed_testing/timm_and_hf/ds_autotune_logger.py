@@ -11,8 +11,6 @@ import utils
 
 def get_parsed_args():
     parser = argparse.ArgumentParser()
-    # Absorb a possible `local_rank` arg from the launcher.
-    parser.add_argument("--last_exit_code", type=int)
     parser.add_argument("-w", "--workspace_name", type=str)
     parser.add_argument("-p", "--project_name", type=str)
     parser.add_argument("-e", "--exp_name", type=str)
@@ -50,4 +48,3 @@ if __name__ == "__main__":
     with det.core.init(distributed=distributed) as core_context:
         args = get_parsed_args()
         main(core_context, args=args)
-        sys.exit(args.last_exit_code)

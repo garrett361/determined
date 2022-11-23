@@ -86,10 +86,9 @@ def exp_name_and_config_generator(args):
     assert args.task in TASKS, f"Task must be one of {TASKS}"
     if not args.autotuning and len(args.zero_stage) == 1:
         args.zero_stage = args.zero_stage[0]
-    test = [bool(x) for x in (args.autotuning, args.flops_profiler, args.find_max_batch_size)]
     assert (
-        sum(test) == 1
-    ), f"Only one of autotuning, flops_profiler, find_max_batch_size can be set. {test}"
+        sum(bool(x) for x in (args.autotuning, args.flops_profiler)) <= 1
+    ), f"Only one of autotuning, flops_profiler, find_max_batch_size can be set."
 
     if args.autotuning:
         assert args.autotuning in AUTOTUNINGS, f"autotuning must be one of {AUTOTUNINGS}"
@@ -196,9 +195,9 @@ def exp_name_and_config_generator(args):
         # Series of optional DeepSpeed configs that can be added in.
         flops_profiler = {
             "enabled": True,
-            "profile_step": 10,
+            "profile_step": 2,  # Changed from the default of 1.
             "module_depth": -1,
-            "top_modules": 10,
+            "top_modules": 1,
             "detailed": True,
             "output_file": FLOPS_PROFILER_OUTPUT_PATH,
         }
@@ -260,8 +259,9 @@ def exp_name_and_config_generator(args):
 
         run_timm_cmd_list = [
             "main_timm.py",
+            f"--deepspeed_config {DS_CONFIG_PATH}",
             f"{'-fmbs' if args.find_max_batch_size else ''}",
-            f"--deepspeed_config {DS_CONFIG_PATH};",
+            ";",
         ]
 
         cmd_list_dict = {
@@ -274,13 +274,13 @@ def exp_name_and_config_generator(args):
         if args.autotuning:
             entrypoint += (
                 f" python3 -m determined.launch.torch_distributed python3 "
-                f"ds_autotune_logger.py --last_exit_code $? -w {workspace_name} "
+                f"ds_autotune_logger.py -w {workspace_name} "
                 f"-p {project_name} -e {exp_name} -m {model_name}"
             )
         if args.flops_profiler:
             entrypoint += (
                 f" python3 -m determined.launch.torch_distributed python3 "
-                f"ds_profiler_logger.py --last_exit_code $? -w {workspace_name} "
+                f"ds_profiler_logger.py -w {workspace_name} "
                 f"-p {project_name} -e {exp_name} -m {model_name}"
             )
 

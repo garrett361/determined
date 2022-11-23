@@ -6,18 +6,17 @@ import attrdict
 import data
 import deepspeed
 import determined as det
+import torch
+
 import trainer
 import models
+from constants import DS_CONFIG_PATH
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     # Include DeepSpeed configuration arguments
     parser = deepspeed.add_config_arguments(parser)
-    # Absorb a possible `local_rank` arg from the launcher.
-    parser.add_argument(
-        "--local_rank", type=int, default=-1, help="local rank passed from distributed launcher"
-    )
     parser.add_argument("-fmbs", "--find_max_batch_size", action="store_true")
 
     args = parser.parse_args()
@@ -32,7 +31,6 @@ def main(core_context, hparams: Dict[str, Any], latest_checkpoint: str) -> None:
     )
     transforms = data.build_timm_transforms(model_name=hparams.model_name)
     args = parse_args()
-    print(args)
     if args.find_max_batch_size:
         max_batch_size = trainer.DeepSpeedTrainer.find_max_batch_size(
             core_context=core_context,
@@ -43,18 +41,24 @@ def main(core_context, hparams: Dict[str, Any], latest_checkpoint: str) -> None:
             dataset_name=hparams.dataset_name,
             sanity_check=hparams.sanity_check,
         )
-        print(f"Max batch size: {max_batch_size}")
-    else:
-        ds_trainer = trainer.DeepSpeedTrainer(
-            core_context=core_context,
-            latest_checkpoint=latest_checkpoint,
-            args=args,
-            model=model,
-            transforms=transforms,
-            dataset_name=hparams.dataset_name,
-            sanity_check=hparams.sanity_check,
-        )
-        ds_trainer.train()
+        if core_context.distributed.rank == 0:
+            trainer.DeepSpeedTrainer.update_tmbspg_in_config(
+                train_micro_batch_size_per_gpu=max_batch_size, path=DS_CONFIG_PATH
+            )
+        args.train_micro_batch_size_per_gpu = max_batch_size
+        torch.distributed.barrier()
+        print(80 * "8", f"DONE FINDING MAX BATCH SIZE {max_batch_size}", 80 * "8", sep="\n")
+    ds_trainer = trainer.DeepSpeedTrainer(
+        core_context=core_context,
+        latest_checkpoint=latest_checkpoint,
+        args=args,
+        model=model,
+        transforms=transforms,
+        dataset_name=hparams.dataset_name,
+        sanity_check=hparams.sanity_check,
+    )
+    print(80 * "%", f"ABOUT TO TRAIN", 80 * "%", sep="\n")
+    ds_trainer.train()
 
 
 if __name__ == "__main__":
