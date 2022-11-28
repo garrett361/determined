@@ -14,11 +14,15 @@ import utils
 
 from constants import (
     AUTOTUNINGS,
+    AUTOTUNING_END_PROFILE_STEP,
+    AUTOTUNING_START_PROFILE_STEP,
     DEFAULT_DATASETS,
     DEFAULT_MODELS,
     DS_CONFIG_PATH,
     FLOPS_PROFILER_OUTPUT_PATH,
+    MAX_STEPS,
     METRICS,
+    FLOPS_PROFILE_STEP,
     TASKS,
     TUNER_TYPES,
 )
@@ -54,7 +58,8 @@ def parse_args():
     parser.add_argument("-tmbs", "--train_micro_batch_size_per_gpu", type=int, default=128)
     parser.add_argument("-gas", "--gradient_accumulation_steps", type=int, default=1)
     parser.add_argument("-lr", "--lr", type=float, default=1e-10)
-    parser.add_argument("-e", "--epochs", type=int, default=1)
+    parser.add_argument("-e", "--epochs", type=int, default=None)
+    parser.add_argument("-s", "--steps", type=int, default=None)
     parser.add_argument("-sc", "--sanity_check", action="store_true")
     parser.add_argument("-t", "--test", action="store_true")
     parser.add_argument("-zs", "--zero_stage", type=int, nargs="+", default=[0])
@@ -98,13 +103,14 @@ def exp_name_and_config_generator(args):
     if not args.model_name:
         args.model_name = DEFAULT_MODELS[args.task]
 
+    assert not (args.epochs and args.steps), "Only one of epochs or steps may be provided."
+    if args.epochs is None and args.steps is None:
+        args.steps = MAX_STEPS
+
     # Generate experiment names from command line arguments
     # Append '_test' to the given workspace name, if --test is set.
     workspace_name = args.workspace + ("_test" if args.test else "")
-    # If a non-blank project_name is provided, use that project; otherwise use the dataset_name
-    project_name = args.project_name or (
-        args.dataset_name + ("_profiled" if args.flops_profiler else "")
-    )
+
     with suppress_stdout():
         client.login(master=args.master, user=args.user, password=args.password)
 
@@ -115,15 +121,11 @@ def exp_name_and_config_generator(args):
         password=args.password,
         create_workspace=True,
     )
-    workspace.create_project(project_name)
+    existing_project_names = workspace.get_all_project_names()
 
-    existing_trials_df = (
-        pd.DataFrame()
-        if args.allow_duplicates
-        else workspace.get_all_trials_df(project_names=project_name)
-    )
+    existing_trials_df = pd.DataFrame() if args.allow_duplicates else workspace.get_all_trials_df()
 
-    # Check if a Trial with the same strategy and model names already exists
+    # Check if a Trial with the same exp_name already exists.
     existing_exp_names = set()
     if not existing_trials_df.empty:
         for hp_dict in existing_trials_df.hparams:
@@ -143,20 +145,31 @@ def exp_name_and_config_generator(args):
     for model_name, tuner_type, metric, slots_per_trial in itertools.product(
         args.model_name, args.autotuning_tuner_type, args.autotuning_metric, args.slots_per_trial
     ):
-        # Various sanity checks, hacks, and dynamic fixes.
-        if args.autotuning:
-            assert metric in METRICS, f"metric must be one of {METRICS}"
-            assert tuner_type in TUNER_TYPES, f"tuner_type must be one of {TUNER_TYPES}"
+        # Dynamically generate project and experiment names.
+        if args.project_name:
+            project_name = args.project_name
+        else:
+            project_name = model_name
+            if args.autotuning:
+                project_name += f".autotuning"
+            if args.flops_profiler:
+                project_name += ".flops_profiler"
+            if project_name not in existing_project_names:
+                existing_project_names.append(project_name)
+                workspace.create_project(project_name)
 
-        # Generate a useful experiment name dynamically
-        exp_name = model_name
+        exp_name = f"{slots_per_trial}GPU.{args.dataset_name}"
         if args.fp16:
             exp_name += ".fp16"
         if args.autotuning_fast:
             exp_name += ".fast"
         if args.autotuning:
             exp_name += f".{metric}.{tuner_type}"
-        exp_name += f".{slots_per_trial}GPU"
+
+        # Various sanity checks, hacks, and dynamic fixes.
+        if args.autotuning:
+            assert metric in METRICS, f"metric must be one of {METRICS}"
+            assert tuner_type in TUNER_TYPES, f"tuner_type must be one of {TUNER_TYPES}"
 
         if exp_name in existing_exp_names:
             print(f"Skipping {exp_name}: already exists.")
@@ -195,7 +208,7 @@ def exp_name_and_config_generator(args):
         # Series of optional DeepSpeed configs that can be added in.
         flops_profiler = {
             "enabled": True,
-            "profile_step": 2,  # Changed from the default of 1.
+            "profile_step": FLOPS_PROFILE_STEP,  # Changed from the default of 1.
             "module_depth": -1,
             "top_modules": 1,
             "detailed": True,
@@ -209,6 +222,8 @@ def exp_name_and_config_generator(args):
             "tuner_early_stopping": args.autotuning_tuner_early_stopping,
             "tuner_type": tuner_type,
             "tuner_num_trials": args.autotuning_num_trials,
+            "start_profile_step": AUTOTUNING_START_PROFILE_STEP,
+            "end_profile_step": AUTOTUNING_END_PROFILE_STEP,
         }
 
         if args.flops_profiler:
@@ -260,8 +275,8 @@ def exp_name_and_config_generator(args):
         run_timm_cmd_list = [
             "main_timm.py",
             f"--deepspeed_config {DS_CONFIG_PATH}",
-            f"{'-fmbs' if args.find_max_batch_size else ''}",
-            ";",
+            f"{'--find_max_batch_size' if args.find_max_batch_size else ''}",
+            f"{'--autotuning' if args.autotuning else ''}",
         ]
 
         cmd_list_dict = {
@@ -271,18 +286,6 @@ def exp_name_and_config_generator(args):
         }
 
         entrypoint += " ".join(cmd_list_dict[args.task])
-        if args.autotuning:
-            entrypoint += (
-                f" python3 -m determined.launch.torch_distributed python3 "
-                f"ds_autotune_logger.py -w {workspace_name} "
-                f"-p {project_name} -e {exp_name} -m {model_name}"
-            )
-        if args.flops_profiler:
-            entrypoint += (
-                f" python3 -m determined.launch.torch_distributed python3 "
-                f"ds_profiler_logger.py -w {workspace_name} "
-                f"-p {project_name} -e {exp_name} -m {model_name}"
-            )
 
         config = {
             "entrypoint": entrypoint,
@@ -290,11 +293,12 @@ def exp_name_and_config_generator(args):
             "workspace": workspace_name,
             "project": project_name,
             "max_restarts": 0,
+            "checkpoint_storage": {"save_trial_latest": 1000},  # Only saving text files.
             "reproducibility": {"experiment_seed": 42},
             "resources": {"slots_per_trial": slots_per_trial},
             "searcher": {
                 "name": "single",
-                "max_length": args.epochs,
+                "max_length": args.steps or args.epochs,
                 "metric": "metric",
                 "smaller_is_better": False,
             },

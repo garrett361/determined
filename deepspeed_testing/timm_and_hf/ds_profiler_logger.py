@@ -36,7 +36,6 @@ def main(core_context: det.core.Context, args: argparse.Namespace) -> None:
             workspace_name=args.workspace_name,
             project_name=args.project_name,
             exp_name=args.exp_name,
-            model_name=args.model_name,
             entrypoint="python3 single_ds_profiler_logger_exp.py",
         )
         create_experiment(config=config, model_dir=".")

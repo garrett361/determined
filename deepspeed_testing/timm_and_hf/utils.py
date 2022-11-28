@@ -51,7 +51,7 @@ class DSAutotuningResults:
             d = json.load(f)
         return d
 
-    def _get_hp_config_list_from_results_dir(self) -> List[Dict[str, Any]]:
+    def _get_hp_config_list_from_results_dirs(self) -> List[Dict[str, Any]]:
         hp_config_list = []
         for path in self.results_dirs:
             if os.path.exists(path.joinpath("metrics.json")):
@@ -65,6 +65,25 @@ class DSAutotuningResults:
                 hp_config = upper_case_dict_key(hp_config, "type")
                 hp_config_list.append(hp_config)
         return hp_config_list
+
+    def _get_model_info_dict(self) -> Dict[str, Any]:
+        # Add hp fields
+        model_info_path = self.path.joinpath(
+            "autotuning_results/profile_model_info/model_info.json"
+        )
+        model_info_dict = self._get_dict_from_json_path(model_info_path)
+        return model_info_dict
+
+    def get_ranked_results_dicts(self) -> List[Dict[str, Any]]:
+        """Returns a list of all results, best performing ones first."""
+        all_hp_dicts = self._get_hp_config_list_from_results_dirs()
+        searcher_metric = all_hp_dicts[0]["exp_config"]["ds_config"]["autotuning"]["metric"]
+
+        def key(d):
+            return d["metrics"][searcher_metric]
+
+        ranked_hp_dicts = sorted(all_hp_dicts, key=key, reverse=searcher_metric != "latency")
+        return ranked_hp_dicts
 
     def get_grid_search_config(
         self,
@@ -91,7 +110,7 @@ class DSAutotuningResults:
             "hyperparameters": None,
         }
 
-        all_hp_dicts = self._get_hp_config_list_from_results_dir()
+        all_hp_dicts = self._get_hp_config_list_from_results_dirs()
 
         # Dynamically set some fields in the base config
         grid_search_config["searcher"]["metric"] = all_hp_dicts[0]["exp_config"]["ds_config"][
@@ -102,13 +121,10 @@ class DSAutotuningResults:
         )
 
         # Add hp fields
-        model_info_path = self.path.joinpath(
-            "autotuning_results/profile_model_info/model_info.json"
-        )
-        model_info = self._get_dict_from_json_path(model_info_path)
+        model_info_dict = self._get_model_info_dict()
         hp_dict = {
             "model_name": model_name,
-            "model_info": model_info,
+            "model_info": model_info_dict,
             "results": {"type": "categorical", "vals": all_hp_dicts},
         }
         grid_search_config["hyperparameters"] = hp_dict
@@ -122,7 +138,7 @@ class DSProfilerResults:
     def __init__(self, path: pathlib.Path) -> None:
         self.path = path
 
-    def _get_results_dict_from_path(self) -> Dict[str, float]:
+    def get_results_dict_from_path(self) -> Dict[str, float]:
         naming_map = {
             "iter latency": "latency_s",
             "FLOPS per GPU": "FLOPS_per_gpu_corrected",
@@ -142,7 +158,6 @@ class DSProfilerResults:
         workspace_name: str,
         project_name: str,
         exp_name: str,
-        model_name: str,
         entrypoint: str,
         append_to_name: str = ".results",
     ) -> Dict[str, Any]:
@@ -161,7 +176,7 @@ class DSProfilerResults:
             "hyperparameters": None,
         }
 
-        results_dict = self._get_results_dict_from_path()
+        results_dict = self.get_results_dict_from_path()
 
         config["hyperparameters"] = {"results": results_dict, "profiled": True}
 

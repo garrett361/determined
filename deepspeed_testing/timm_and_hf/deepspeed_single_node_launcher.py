@@ -180,6 +180,4 @@ def parse_args(args: List[str]) -> Tuple[List[str], List[str]]:
 
 if __name__ == "__main__":
     override_args, script = parse_args(sys.argv[1:])
-    exit_code = main(override_args, script)
-    if exit_code:
-        sys.exit(exit_code)
+    sys.exit(main(override_args, script))
