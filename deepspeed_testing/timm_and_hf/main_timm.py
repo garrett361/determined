@@ -39,7 +39,6 @@ def main(core_context, hparams: Dict[str, Any], latest_checkpoint: str) -> None:
         "model": model,
         "transforms": transforms,
         "dataset_name": hparams.dataset_name,
-        "sanity_check": hparams.sanity_check,
     }
     if args.find_max_batch_size:
         trainer.DeepSpeedTrainer.find_max_batch_size(**kwargs)

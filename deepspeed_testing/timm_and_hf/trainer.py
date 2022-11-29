@@ -29,7 +29,6 @@ class DeepSpeedTrainer(nn.Module):
         model: nn.Module,
         transforms: Union[Callable, List[Callable]],
         dataset_name: str,
-        sanity_check: bool = False,
         random_seed: int = 42,
     ) -> None:
         super().__init__()
@@ -39,9 +38,6 @@ class DeepSpeedTrainer(nn.Module):
         self.model = model
         self.transforms = transforms
         self.dataset_name = dataset_name
-        self.sanity_check = sanity_check
-        if self.sanity_check:
-            logging.info(f"Running in sanity check mode!")
         self.random_seed = random_seed
 
         self.criterion = nn.CrossEntropyLoss()
@@ -142,7 +138,8 @@ class DeepSpeedTrainer(nn.Module):
                 # Report completed value is not needed.
                 op.report_completed(0)
         logging.warning("Saving autotuning results.")
-        self._report_and_save_native_autotuning_results()
+        if self.is_chief:
+            self._report_and_save_native_autotuning_results()
 
     @staticmethod
     def update_tmbspg_in_config(
@@ -249,8 +246,21 @@ class DeepSpeedTrainer(nn.Module):
         ranked_results_dicts = results.get_ranked_results_dicts()
         for rank, results_dict in enumerate(ranked_results_dicts):
             metrics = results_dict["metrics"]
-            exp_config = results_dict["exp_config"]
+            ds_config = results_dict["exp_config"]["ds_config"]
+            reported_metrics = utils.get_flattened_dict({**metrics, **ds_config})
             self.core_context.train.report_validation_metrics(
                 steps_completed=rank,
-                metrics=metrics,
+                metrics=reported_metrics,
             )
+
+        checkpoint_metadata_dict = {"steps_completed": len(ranked_results_dicts) - 1}
+        with self.core_context.checkpoint.store_path(checkpoint_metadata_dict) as (
+            ckpt_path,
+            storage_id,
+        ):
+            for autotuning_dir in ("autotuning_exps", "autotuning_results"):
+                src_path = pathlib.Path(autotuning_dir)
+                shutil.copytree(
+                    src=src_path,
+                    dst=pathlib.Path(ckpt_path).joinpath(autotuning_dir),
+                )

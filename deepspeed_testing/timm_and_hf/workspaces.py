@@ -9,6 +9,8 @@ import pandas as pd
 import requests
 from tqdm.asyncio import tqdm_asyncio
 
+import utils
+
 # For use in a notebook https://stackoverflow.com/a/39662359
 def is_notebook() -> bool:
     try:
@@ -246,8 +248,8 @@ class Workspace:
                 continue
             if only_get_completed and trial["state"] != "STATE_COMPLETED":
                 continue
-            best_val_metrics_dict = trial["bestValidation"]["metrics"]
-            flattened_hparam_dict = self._get_flattened_dict(trial["hparams"])
+            best_val_metrics_dict = trial["bestValidation"]["metrics"]["avgMetrics"]
+            flattened_hparam_dict = utils.get_flattened_dict(trial["hparams"])
             trial_results = {
                 **best_val_metrics_dict,
                 **flattened_hparam_dict,
@@ -381,20 +383,3 @@ class Workspace:
         url: str,
     ) -> None:
         await session.delete(url, ssl=False)
-
-    def _get_flattened_dict(self, d: dict, concat_str: str = "_") -> Dict[str, Any]:
-        """Flattens a nested dict into a single level dict with concatenated keys."""
-        flat_dict = {}
-
-        def flatten(d: dict, parent_key: str = "") -> None:
-            for key, val in d.items():
-                if parent_key:
-                    key = parent_key + concat_str + key
-                if not isinstance(val, dict):
-                    assert key not in flat_dict, f'Key "{key}" already exists in dict!!!'
-                    flat_dict[key] = val
-                else:
-                    flatten(val, key)
-
-        flatten(d)
-        return flat_dict

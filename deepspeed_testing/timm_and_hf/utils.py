@@ -140,9 +140,20 @@ class DSProfilerResults:
 
     def get_results_dict_from_path(self) -> Dict[str, float]:
         naming_map = {
-            "iter latency": "latency_s",
-            "FLOPS per GPU": "FLOPS_per_gpu_corrected",
-            "samples/second": "throughput_s",
+            "iter latency": "latency",
+            "FLOPS per GPU": "FLOPS_per_gpu",
+            "samples/second": "throughput",
+        }
+        # The FLOPS and latency computations are reported with units.  We convert everything to
+        # FLOPS and seconds.
+        units_map = {
+            "TFLOPS": 1e12,
+            "GFLOPS": 1e9,
+            "MFLOPS": 1e6,
+            "KFLOPS": 1e3,
+            "s": 1,
+            "ms": 1e-3,
+            "us": 1e-6,
         }
         results_dict = {}
         with open(self.path, "r") as output:
@@ -150,7 +161,12 @@ class DSProfilerResults:
                 line = line.strip()
                 for name, metric in naming_map.items():
                     if line.startswith(name):
-                        results_dict[metric] = get_decimal_numbers_in_line(line)
+                        if name != "samples/second":
+                            units_factor = units_map[line.split()[-1]]
+                        else:
+                            units_factor = 1
+                        results_dict[metric] = get_decimal_numbers_in_line(line) * units_factor
+
         return results_dict
 
     def get_config(
@@ -181,3 +197,21 @@ class DSProfilerResults:
         config["hyperparameters"] = {"results": results_dict, "profiled": True}
 
         return config
+
+
+def get_flattened_dict(d: dict, concat_str: str = "_") -> Dict[str, Any]:
+    """Flattens a nested dict into a single level dict with concatenated keys."""
+    flat_dict = {}
+
+    def flatten(d: dict, parent_key: str = "") -> None:
+        for key, val in d.items():
+            if parent_key:
+                key = parent_key + concat_str + key
+            if not isinstance(val, dict):
+                assert key not in flat_dict, f'Key "{key}" already exists in dict!!!'
+                flat_dict[key] = val
+            else:
+                flatten(val, key)
+
+    flatten(d)
+    return flat_dict

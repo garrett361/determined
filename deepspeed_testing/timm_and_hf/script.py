@@ -50,6 +50,7 @@ def parse_args():
     parser.add_argument("-pn", "--project_name", type=str)
     parser.add_argument("-w", "--workspace", type=str, default="DeepSpeed")
     parser.add_argument("-mn", "--model_name", type=str, nargs="+")
+    parser.add_argument("-ens", "--exp_name_suffix", type=str, nargs="+", default=[""])
     parser.add_argument(
         "-cpp", "--checkpoint_path_prefix", type=str, default="shared_fs/ensembles/state_dicts/"
     )
@@ -60,13 +61,12 @@ def parse_args():
     parser.add_argument("-lr", "--lr", type=float, default=1e-10)
     parser.add_argument("-e", "--epochs", type=int, default=None)
     parser.add_argument("-s", "--steps", type=int, default=None)
-    parser.add_argument("-sc", "--sanity_check", action="store_true")
     parser.add_argument("-t", "--test", action="store_true")
     parser.add_argument("-zs", "--zero_stage", type=int, nargs="+", default=[0])
     parser.add_argument("-prof", "--flops_profiler", action="store_true")
     parser.add_argument("--fp16", action="store_true")
     parser.add_argument("-a", "--autotuning", type=str, default="")
-    parser.add_argument("-am", "--autotuning_metric", type=str, nargs="+", default=["throughput"])
+    parser.add_argument("-sm", "--searcher_metric", type=str, nargs="+", default=["throughput"])
     parser.add_argument(
         "-att", "--autotuning_tuner_type", type=str, nargs="+", default=["model_based"]
     )
@@ -83,7 +83,7 @@ def parse_args():
 
 def exp_name_and_config_generator(args):
     """
-    Loops over provided autotuning_tuner_type and autotuning_metric values and yields
+    Loops over provided autotuning_tuner_type and searcher_metric values and yields
     exp_name, config tuples.
     """
     # Initial sanity checks
@@ -123,27 +123,30 @@ def exp_name_and_config_generator(args):
     )
     existing_project_names = workspace.get_all_project_names()
 
-    existing_trials_df = pd.DataFrame() if args.allow_duplicates else workspace.get_all_trials_df()
+    existing_trials_df = (
+        pd.DataFrame() if args.allow_duplicates else workspace.get_trial_best_val_results_df()
+    )
 
     # Check if a Trial with the same exp_name already exists.
     existing_exp_names = set()
     if not existing_trials_df.empty:
-        for hp_dict in existing_trials_df.hparams:
-            try:
-                existing_exp_names.add(hp_dict["exp_name"])
-            except KeyError:
-                continue
+        for row, vals in existing_trials_df.iterrows():
+            existing_exp_names.add(vals.exp_name)
 
-    # Check for "all" in autotuning_tuner_type and autotuning_metric
+    # Check for "all" in autotuning_tuner_type and searcher_metric
     if args.autotuning_tuner_type == ["all"]:
         args.autotuning_tuner_type = TUNER_TYPES
-    if args.autotuning_metric == ["all"]:
-        args.autotuning_metric = METRICS
+    if args.searcher_metric == ["all"]:
+        args.searcher_metric = METRICS
     if args.model_name == ["all"]:
         args.model_name = models.get_model_names(args.task)
 
-    for model_name, tuner_type, metric, slots_per_trial in itertools.product(
-        args.model_name, args.autotuning_tuner_type, args.autotuning_metric, args.slots_per_trial
+    for model_name, tuner_type, metric, slots_per_trial, suffix in itertools.product(
+        args.model_name,
+        args.autotuning_tuner_type,
+        args.searcher_metric,
+        args.slots_per_trial,
+        args.exp_name_suffix,
     ):
         # Dynamically generate project and experiment names.
         if args.project_name:
@@ -158,13 +161,15 @@ def exp_name_and_config_generator(args):
                 existing_project_names.append(project_name)
                 workspace.create_project(project_name)
 
-        exp_name = f"{slots_per_trial}GPU.{args.dataset_name}"
+        exp_name = f"{slots_per_trial}GPU.{model_name}.{args.dataset_name}"
         if args.fp16:
             exp_name += ".fp16"
-        if args.autotuning_fast:
-            exp_name += ".fast"
         if args.autotuning:
             exp_name += f".{metric}.{tuner_type}"
+            if args.autotuning_fast:
+                exp_name += ".fast"
+        if suffix:
+            exp_name += f".{suffix}"
 
         # Various sanity checks, hacks, and dynamic fixes.
         if args.autotuning:
@@ -175,17 +180,18 @@ def exp_name_and_config_generator(args):
             print(f"Skipping {exp_name}: already exists.")
             continue
 
+        # Useful hps to track when analyzing results or which are used downstream.
         base_hps = {
             "dataset_name": args.dataset_name,
             "model_name": model_name,
-            "sanity_check": args.sanity_check,
             "checkpoint_path_prefix": args.checkpoint_path_prefix,
+            "slots_per_trial": slots_per_trial,
         }
 
         # The native ds_config requires `type` key for various entries which conflicts with
         # the special behavior for the `type` key with our searcher.  We write the DS_CONFIG_PATH
-        # file with the lower case type and also log the ds_config as part of the HPs with upper-cased TYPE
-        # keys for easier Web UI tracking.
+        # file with the lower case type and also log the ds_config as part of the HPs with
+        # upper-cased TYPE keys for easier Web UI tracking.
         train_micro_batch_size_per_gpu = (
             args.train_micro_batch_size_per_gpu if args.task == "timm" else "auto"
         )
@@ -203,6 +209,7 @@ def exp_name_and_config_generator(args):
         if args.task == "timm":
             ds_config["fp16"] = {
                 "enabled": args.fp16,
+                "initial_scale_power": 8,  # Trying to prevent loss scale resizing.
             }
 
         # Series of optional DeepSpeed configs that can be added in.
@@ -292,14 +299,14 @@ def exp_name_and_config_generator(args):
             "name": exp_name,
             "workspace": workspace_name,
             "project": project_name,
-            "max_restarts": 0,
+            "max_restarts": 3,
             "checkpoint_storage": {"save_trial_latest": 1000},  # Only saving text files.
             "reproducibility": {"experiment_seed": 42},
             "resources": {"slots_per_trial": slots_per_trial},
             "searcher": {
                 "name": "single",
                 "max_length": args.steps or args.epochs,
-                "metric": "metric",
+                "metric": metric,
                 "smaller_is_better": False,
             },
             "environment": {
