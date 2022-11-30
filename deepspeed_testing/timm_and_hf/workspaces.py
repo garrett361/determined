@@ -54,7 +54,8 @@ class Workspace:
             self._create_workspace(workspace_name)
         self.workspace_idx = self._get_workspace_idx()
 
-        self._idxs_to_delete_set = None
+        self._exp_idxs_to_delete_set = None
+        self._trial_idxs_to_kill_set = None
         self._project_trials_dict = defaultdict(list)
 
     def _session(self) -> requests.Session:
@@ -133,7 +134,7 @@ class Workspace:
         return experiment_idxs
 
     def get_all_projects(self) -> List[Dict[str, Any]]:
-        "Returns a list detailing all Projects in the Workspace."
+        """Returns a list detailing all Projects in the Workspace."""
         url = f"{self.master_url}/api/v1/workspaces/{self.workspace_idx}/projects"
         with self._session() as s:
             response = s.get(url, params={"limit": REQ_LIMIT})
@@ -141,7 +142,7 @@ class Workspace:
         return projects
 
     def get_all_project_names(self) -> List[str]:
-        "Returns a list of all Project names in the Workspace."
+        """Returns a list of all Project names in the Workspace."""
         projects = self.get_all_projects()
         names = [p["name"] for p in projects]
         return names
@@ -305,16 +306,16 @@ class Workspace:
         """Deletes all Experiments from the specified Projects in the Workspace.  Must be called
         twice to perform the deletion when safe_mode == True."""
         idxs_to_delete_set = set(self._get_experiment_idxs(projects_to_delete_from))
-        if safe_mode and idxs_to_delete_set != self._idxs_to_delete_set:
+        if safe_mode and idxs_to_delete_set != self._exp_idxs_to_delete_set:
             warnings.warn(
                 f"This will delete {len(idxs_to_delete_set)} experiments."
                 " Please run a second time to confirm deletion."
             )
-            self._idxs_to_delete_set = idxs_to_delete_set
+            self._exp_idxs_to_delete_set = idxs_to_delete_set
         else:
             print(f"Deleting {len(idxs_to_delete_set)} experiments.")
             self._delete_experiment_idxs(idxs_to_delete_set, desc="Deleting all Experiments")
-            self._idxs_to_delete_set = None
+            self._exp_idxs_to_delete_set = None
 
     def delete_experiments_with_unvalidated_trials(
         self,
@@ -335,18 +336,44 @@ class Workspace:
                 and trial["bestValidation"] is None
             ):
                 idxs_to_delete_set.add(trial["experimentId"])
-        if safe_mode and self._idxs_to_delete_set != idxs_to_delete_set:
+        if safe_mode and self._exp_idxs_to_delete_set != idxs_to_delete_set:
             warnings.warn(
                 f"This will delete {len(idxs_to_delete_set)} experiments."
                 " Please run a second time to confirm deletion."
             )
-            self._idxs_to_delete_set = idxs_to_delete_set
+            self._exp_idxs_to_delete_set = idxs_to_delete_set
         else:
             print(f"Deleting {len(idxs_to_delete_set)} experiments.")
             self._delete_experiment_idxs(
                 idxs_to_delete_set, desc="Deleting unvalidated Experiments"
             )
-            self._idxs_to_delete_set = None
+            self._exp_idxs_to_delete_set = None
+
+    def _kill_trial_idxs(self, trial_idxs: Set[int], desc: str = "") -> None:
+        gather_fn_kwargs = (
+            {"url": f"{self.master_url}/api/v1/trials/{idx}/kill"} for idx in trial_idxs
+        )
+        asyncio.run(
+            self._gather(gather_fn=self._delete_async, gather_fn_kwargs=gather_fn_kwargs, desc=desc)
+        )
+
+    def kill_all_active_trials(self, *, safe_mode: bool = True) -> None:
+        """Deletes all Experiments from the specified Projects in the Workspace.  Must be called
+        twice to perform the deletion when safe_mode == True."""
+        trial_idxs_to_kill_set = set()
+        for trial_dict in self.get_all_trials():
+            if trial_dict["state"] == "STATE_ACTIVE":
+                trial_idxs_to_kill_set.add(trial_dict["id"])
+        if safe_mode and trial_idxs_to_kill_set != self._trial_idxs_to_kill_set:
+            warnings.warn(
+                f"This will kill {len(trial_idxs_to_kill_set)} Trials."
+                " Please run a second time to confirm deletion."
+            )
+            self._trial_idxs_to_kill_set = trial_idxs_to_kill_set
+        else:
+            print(f"Killing {len(trial_idxs_to_kill_set)} experiments.")
+            self._kill_trial_idxs(trial_idxs_to_kill_set, desc="Killing all active Trials")
+            self._trial_idxs_to_kill_set = None
 
     async def _gather(
         self,

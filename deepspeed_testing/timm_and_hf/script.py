@@ -326,3 +326,7 @@ if __name__ == "__main__":
         print(f"Submitting experiment {idx + 1}: {exp_name}")
         with suppress_stdout():
             client.create_experiment(config=config, model_dir=".")
+    try:
+        print("", 80 * "*", f"Successfully submitted {idx + 1} experiments.", 80 * "~", sep="\n")
+    except NameError:
+        print("", 80 * "*", "No experiments were submitted.", 80 * "~", sep="\n")
