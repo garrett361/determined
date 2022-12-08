@@ -1,6 +1,7 @@
 name: cifar10_pytorch_const
 workspace: Garrett
 project: Tests
+max_restarts: 0
 hyperparameters:
   global_batch_size: 1
   lr: 1.0e-4

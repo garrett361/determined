@@ -1,0 +1,19 @@
+name: cifar10_pytorch_const
+workspace: Garrett
+project: Tests
+max_restarts: 0
+records_per_epoch: 1
+hyperparameters:
+  global_batch_size: 1
+  lr: 1.0e-4
+  dim: 1000
+  num_train_records: 10
+  num_val_records: 10
+resources:
+  slots_per_trial: 1
+searcher:
+  name: single
+  metric: val_loss
+  max_length:
+    epochs: 10
+entrypoint: python3 -m determined.launch.torch_distributed python3 main.py

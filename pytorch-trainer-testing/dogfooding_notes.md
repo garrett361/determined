@@ -13,7 +13,7 @@ on a flag.
 
 ## Bugs
 
-* Setting `max_length` in units of records leads to never-ending experiments (Anda currently fixing)
+- Setting `max_length` in units of records leads to never-ending experiments (Anda currently fixing)
   .
 
 ## Miscellaneous
@@ -39,9 +39,16 @@ and `batches/s` numbers should also match (they differ by a `9/10` factor).
 
 ### Training Units
 
-
 `Record` unit is a little weird and seemingly not super useful? Probably no need to get rid of it,
 though.
 
 A slightly more useful unit would be `Step`, meaning actual optimizer steps. Numerically, this just
-differs from `Batch`es by the gradient aggregation rate. 
+differs from `Batch`es by the gradient aggregation rate.
+
+I fully support removing `records_per_epoch`. This means that users currently error out
+if they specify training in terms of epochs, though. Intended behavior?
+
+```
+Failed to create experiment: invalid experiment configuration: version 0 experiment config is invalid: config is invalid: <config>.searcher.max_length: must specify
+the top-level records_per_epoch when this field is in terms of epochs
+```
