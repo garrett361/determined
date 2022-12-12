@@ -38,6 +38,8 @@ class IdentityTrial(det.pytorch.PyTorchTrial):
         self.train_set = RandDataset(self.hps.num_train_records, self.hps.dim)
         self.val_set = RandDataset(self.hps.num_val_records, self.hps.dim)
 
+        # self.context.set_profiler()
+
     def build_training_data_loader(self) -> torch.utils.data.DataLoader:
         return DataLoader(
             self.train_set,
@@ -71,6 +73,10 @@ def main() -> None:
     with det.pytorch.init() as train_context:
         trial = IdentityTrial(train_context)
         trainer = det.pytorch.Trainer(trial, train_context)
+        trainer.configure_profiler(
+            enabled=True, sync_timings=True, begin_on_batch=5000, end_after_batch=10000
+        )
+
         trainer.fit()
 
 

@@ -1,4 +1,4 @@
-name: cifar10_pytorch_const
+name: cifar10_pytorch_const-two-slot
 workspace: Garrett
 project: Tests
 max_restarts: 0

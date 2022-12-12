@@ -4,11 +4,10 @@ import random
 import sys
 from typing import Dict, Iterator, Optional
 
+import determined as det
 import numpy as np
 import torch
 import torch.distributed as dist
-
-import determined as det
 from determined import core, horovod, profiler, pytorch
 from determined.horovod import hvd
 

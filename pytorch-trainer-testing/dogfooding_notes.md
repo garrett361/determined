@@ -11,10 +11,20 @@ giving me the option). Ideally, they'd be
 merged: `hparams = {**hparams, ** cluster_info.trial.hparams}` or the opposite ordering, depending
 on a flag.
 
+This asymmetry creates friction in passing from local training to on-cluster training and vice-versa.
+
+Furthermore, it would be an _awesome_ feature to be able to simply specify all config options in a python dict
+and make the usage of a `yaml` file totally optional. Apart from reducing the number of files/file-types
+needed, it is also super convenient to be able to link various fields in the config. My typical
+use case is scenarios where I want some number of parameters to scale proportionally to each other, e.g. there are
+various quantities which I want to scale up or down as the batch size changes. This is easily done
+in a python dict, but not in a `yaml` config.
+
+Allowing the `hparams` dict to be specified in python code in on-cluster training would enable the above and more.
+
 ## Bugs
 
 - Setting `max_length` in units of records leads to never-ending experiments (Anda currently fixing)
-  .
 
 ## Miscellaneous
 
@@ -52,3 +62,5 @@ if they specify training in terms of epochs, though. Intended behavior?
 Failed to create experiment: invalid experiment configuration: version 0 experiment config is invalid: config is invalid: <config>.searcher.max_length: must specify
 the top-level records_per_epoch when this field is in terms of epochs
 ```
+
+`records_per_epoch` experiments seem to run fine?

@@ -1,8 +1,15 @@
-name: cifar10_pytorch_const
+name: cifar10_pytorch_const-profiler-test-config-only
 workspace: Garrett
 project: Tests
+checkpoint_policy: all
+checkpoint_storage:
+  save_trial_best: 10
 max_restarts: 0
-records_per_epoch: 1
+profiling:
+  enabled: true
+  begin_on_batch: 1000
+  end_after_batch: 2000
+  sync_timings: true
 hyperparameters:
   global_batch_size: 1
   lr: 1.0e-4
@@ -15,5 +22,5 @@ searcher:
   name: single
   metric: val_loss
   max_length:
-    epochs: 10
+    batches: 100000
 entrypoint: python3 -m determined.launch.torch_distributed python3 main.py
