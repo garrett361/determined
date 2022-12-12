@@ -8,16 +8,15 @@ import random
 import shutil
 from typing import Callable, Generator, List, Literal, Tuple, Union
 
-import determined as det
+import data
 import deepspeed
+import determined as det
 import numpy as np
 import torch
 import torch.nn as nn
-from determined.pytorch import TorchData
-
-import data
 import utils
 from constants import DS_CONFIG_PATH, FLOPS_PROFILER_OUTPUT_PATH
+from determined.pytorch import TorchData
 
 
 class DeepSpeedTrainer(nn.Module):
@@ -152,8 +151,9 @@ class DeepSpeedTrainer(nn.Module):
             json.dump(old_config, f)
 
     @classmethod
-    def find_max_batch_size(cls, max_fails: int = 3, initial_batch_size: int = 1, **kwargs) -> int:
-        logging.warning(f"Initial memory allocated: {torch.cuda.memory_allocated()}")
+    def find_max_batch_size(
+        cls, max_fails: int = 3, initial_batch_size: int = 1, **kwargs
+    ) -> int:
         core_context = kwargs["core_context"]
         is_chief = core_context.distributed.rank == 0
         for op in core_context.searcher.operations():
@@ -169,9 +169,6 @@ class DeepSpeedTrainer(nn.Module):
                     kwargs["args"].train_micro_batch_size_per_gpu = mid
                     core_context.distributed.broadcast(None)  # Hack for syncing.
                     trainer = cls(**kwargs)
-                    logging.warning(
-                        f"memory allocated after instantiating trainer: {torch.cuda.memory_allocated()}"
-                    )
                     # Instantiation may fail, in which case trainer is still None.
                     if trainer is not None:
                         torch.cuda.synchronize()
@@ -198,12 +195,10 @@ class DeepSpeedTrainer(nn.Module):
                     hi = mid
                 finally:
                     # Memory cleanup.
-                    logging.warning(f"memory allocated pre gc: {torch.cuda.memory_allocated()}")
                     del trainer
                     gc.collect()
                     torch.cuda.synchronize()
                     torch.cuda.empty_cache()
-                    logging.warning(f"memory allocated post gc: {torch.cuda.memory_allocated()}")
                     if is_chief:
                         cls._report_and_save_flops_profiler_results(
                             batch_size=batch_size, core_context=core_context
