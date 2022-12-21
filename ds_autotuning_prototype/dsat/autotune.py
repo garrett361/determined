@@ -2,13 +2,11 @@ import argparse
 import collections
 import copy
 import os
-import pathlib
 from typing import Any, Dict, Optional, Sequence
 
 from determined.experimental import client
-from ruamel import yaml
-
 from dsat import constants
+from ruamel import yaml
 
 
 def parse_args():
@@ -86,21 +84,19 @@ def run_autotuning(args: argparse.Namespace, config_dict: Dict[str, Any]):
     # Need distributed launching here to ensure that only the chief launches the follow
     # on script.
     model_info_config["entrypoint"] += (
-        "; python3 -m determined.launch.torch_distributed python3 dsat/run_ds_autotune.py"
+        "; python3 -m determined.launch.torch_distributed python3 -m dsat.run_ds_autotune"
         f" -p {project_name} -e {exp_name} -w {workspace_name} -c {args.config_path}"
     )
     # TODO: Need to account for case where config isn't in model_dir, in which case
     # we need to pass its path to the `includes` arg of `create_experiment`
-    model_profile_exp = client.create_experiment(
-        config=model_info_config, model_dir=args.model_dir
-    )
+    model_profile_exp = client.create_experiment(config=model_info_config, model_dir=args.model_dir)
 
 
 def run_other_experiment(args: argparse.Namespace, config_dict: Dict[str, Any]):
     exp = client.create_experiment(config=config_dict, model_dir=args.model_dir)
 
 
-if __name__ == "__main__":
+def run():
     args = parse_args()
 
     # Convert config to python dict
@@ -117,3 +113,7 @@ if __name__ == "__main__":
         run_autotuning(args, config_dict)
     else:
         run_other_experiment(args, config_dict)
+
+
+if __name__ == "__main__":
+    run()

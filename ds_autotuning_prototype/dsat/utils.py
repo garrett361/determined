@@ -77,9 +77,7 @@ class DSProfilerResults:
                 for metric in metrics_with_units:
                     if line.startswith(metric + ":"):
                         units_factor = units_map[line.split()[-1]]
-                        results_dict[metric] = (
-                            get_decimal_number_in_line(line) * units_factor
-                        )
+                        results_dict[metric] = get_decimal_number_in_line(line) * units_factor
                 for metric in metrics_without_units:
                     if line.startswith(metric + ":"):
                         results_dict[metric] = get_non_decimal_number_in_line(line)

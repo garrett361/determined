@@ -3,7 +3,6 @@ import pathlib
 import shutil
 
 import determined as det
-
 from dsat import constants
 
 if __name__ == "__main__":
@@ -11,9 +10,7 @@ if __name__ == "__main__":
     info = det.get_cluster_info()
     hparams = info.trial.hparams
     with det.core.init() as core_context:
-        core_context.train.report_validation_metrics(
-            steps_completed=0, metrics=hparams["results"]
-        )
+        core_context.train.report_validation_metrics(steps_completed=0, metrics=hparams["results"])
         checkpoint_metadata_dict = {"steps_completed": 0}
         with core_context.checkpoint.store_path(checkpoint_metadata_dict) as (
             path,

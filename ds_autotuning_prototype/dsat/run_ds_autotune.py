@@ -4,10 +4,9 @@ import pathlib
 import shutil
 import sys
 
-import constants
 import determined as det
-import utils
 from determined.experimental.client import create_experiment
+from dsat import constants, utils
 
 
 def get_parsed_args():
@@ -38,7 +37,7 @@ def main(core_context: det.core.Context, args: argparse.Namespace) -> None:
             workspace_name=args.workspace_name,
             project_name=args.project_name,
             exp_name=args.exp_name,
-            entrypoint="python3 dsat_searcher.py",
+            entrypoint="python3 -m dsat.dsat_searcher",
         )
         logging.info(args.config_path)
         logging_exp = create_experiment(config=config, model_dir=".")
