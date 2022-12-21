@@ -24,6 +24,7 @@ def get_parsed_args():
 def main(core_context: det.core.Context, args: argparse.Namespace) -> None:
     is_chief = core_context.distributed.get_rank() == 0
     if is_chief:
+        # Add the profile results as a checkpoint for the calling Trial.
         checkpoint_metadata_dict = {"steps_completed": 0}
         with core_context.checkpoint.store_path(checkpoint_metadata_dict) as (
             path,
@@ -32,6 +33,8 @@ def main(core_context: det.core.Context, args: argparse.Namespace) -> None:
             src = pathlib.Path(constants.OUTPUT_FILE_PATH)
             dst = pathlib.Path(path).joinpath(src.name)
             shutil.copy(src=src, dst=dst)
+
+        # Then launch the multi-Trial DS AT search
         ds_profiler_results = utils.DSProfilerResults(path=src)
         config = ds_profiler_results.get_config(
             workspace_name=args.workspace_name,
@@ -40,10 +43,7 @@ def main(core_context: det.core.Context, args: argparse.Namespace) -> None:
             entrypoint="python3 -m dsat.dsat_searcher",
         )
         logging.info(args.config_path)
-        logging_exp = create_experiment(config=config, model_dir=".")
-        exit_status = logging_exp.wait()
-        if not exit_status:
-            logging.info("Experiment completed successfully")
+        create_experiment(config=config, model_dir=".")
 
 
 if __name__ == "__main__":
