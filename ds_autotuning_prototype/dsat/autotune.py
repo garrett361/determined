@@ -5,9 +5,10 @@ import os
 import pathlib
 from typing import Any, Dict, Optional, Sequence
 
-import constants
 from determined.experimental import client
 from ruamel import yaml
+
+from dsat import constants
 
 
 def parse_args():

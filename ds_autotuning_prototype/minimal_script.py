@@ -6,9 +6,9 @@ import determined as det
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from dsat import utils
 from attrdict import AttrDict
 from determined.pytorch import DataLoader
+from dsat import utils  # Currently needed for a hack, but should be removed; see below.
 from torch.utils.data import Dataset
 
 

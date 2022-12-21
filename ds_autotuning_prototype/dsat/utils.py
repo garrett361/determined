@@ -4,7 +4,7 @@ import pathlib
 import re
 from typing import Any, Dict, List
 
-import constants
+from dsat import constants
 
 
 def upper_case_dict_key(d: Dict[str, Any], key: str) -> Dict[str, Any]:

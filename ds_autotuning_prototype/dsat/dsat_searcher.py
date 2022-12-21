@@ -2,8 +2,9 @@ import logging
 import pathlib
 import shutil
 
-import constants
 import determined as det
+
+from dsat import constants
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
