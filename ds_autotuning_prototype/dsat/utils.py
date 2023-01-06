@@ -4,6 +4,14 @@ import re
 from typing import Any, Dict, Optional, Sequence
 
 from dsat import constants
+from ruamel import yaml
+
+
+def get_config_dict_from_yaml_path(path: str) -> Dict[str, any]:
+    config = yaml.YAML(typ="safe")
+    with open(path, "r") as f:
+        config_dict = config.load(f)
+    return config_dict
 
 
 def replace_dict(

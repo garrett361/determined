@@ -6,7 +6,6 @@ from typing import Any, Dict
 
 from determined.experimental import client
 from dsat import constants, utils
-from ruamel import yaml
 
 
 def parse_args():
@@ -58,8 +57,11 @@ def run_autotuning(args: argparse.Namespace, config_dict: Dict[str, Any]):
     # Append the autotuning launcher after the original entrypoint.
     # Need distributed launching here to ensure that only the chief launches the follow
     # on script.
-    # TODO: Only launch run_ds_autotune if the original profiling run succeeds.
+    # TODO: Error handling if profiling run fails.
+    # NOTE: Currently these additional entrypoints only run non-trivial code on the
+    # chief, which is why the torch_distributed launcher is needed.
     model_info_profiling_config["entrypoint"] += (
+        "; python3 -m determined.launch.torch_distributed python3 -m dsat.checkpoint_profiling_results"
         "; python3 -m determined.launch.torch_distributed python3 -m dsat.run_ds_autotune"
         f" -p {project_name} -e {exp_name} -w {workspace_name} -c {args.config_path}"
     )
@@ -76,9 +78,7 @@ def run():
     args = parse_args()
 
     # Convert config to python dict
-    config = yaml.YAML(typ="safe")
-    with open(args.config_path, "r") as f:
-        config_dict = config.load(f)
+    config_dict = utils.get_config_dict_from_yaml_path(args.config_path)
 
     if not args.master:
         args.master = os.getenv("DET_MASTER", "localhost:8000")

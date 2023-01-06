@@ -6,8 +6,7 @@ from typing import Any, Dict, List
 
 import determined as det
 from determined import searcher
-from dsat import constants
-from ruamel import yaml
+from dsat import constants, utils
 
 
 class DSATSearchMethod(searcher.SearchMethod):
@@ -21,7 +20,7 @@ class DSATSearchMethod(searcher.SearchMethod):
             "hyperparameters"
         ]  # Just testing by running original exp
         hparams["ds_config"]["flops_profiler"] = constants.FLOPS_PROFILER_CONFIG
-        return 3 * [hparams]
+        return 2 * [hparams]
 
     ############################################################################
     # Invoked only once, when starting a new experiment. Creates initial list
@@ -103,11 +102,9 @@ def main(core_context: det.core.Context) -> None:
 
     args = get_parsed_args()
 
-    original_config = yaml.YAML(typ="safe")
-    with open(args.config_path, "r") as f:
-        original_config_dict = original_config.load(f)
+    config_dict = utils.get_config_dict_from_yaml_path(args.config_path)
     # Instantiate your implementation of SearchMethod
-    search_method = DSATSearchMethod(model_info_profiling_results_dict, original_config_dict)
+    search_method = DSATSearchMethod(model_info_profiling_results_dict, config_dict)
 
     # Instantiate RemoteSearchRunner
     search_runner = searcher.RemoteSearchRunner(search_method, context=core_context)
@@ -122,12 +119,11 @@ def main(core_context: det.core.Context) -> None:
     # 2) Handles communication between the multi-trial experiment and the custom SearchMethod
     # 3) Exits when the experiment is completed.
 
-    # Do we need to delete the hp field?
-    original_config_dict_copy = copy.deepcopy(original_config_dict)
-    del original_config_dict_copy["hyperparameters"]
-    original_config_dict_copy["name"] += " (autotuning trials)"
-    print("dict used in search_runner.run", original_config_dict_copy)
-    search_runner.run(original_config_dict_copy, model_dir=".")
+    # Do we need to delete the hp field? I think it will just get over-written?
+    del config_dict["hyperparameters"]
+    config_dict["name"] += " (autotuning trials)"
+    print("dict used in search_runner.run", config_dict)
+    search_runner.run(config_dict, model_dir=".")
 
 
 if __name__ == "__main__":

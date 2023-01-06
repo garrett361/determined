@@ -23,20 +23,11 @@ def get_parsed_args():
 def main(core_context: det.core.Context, args: argparse.Namespace) -> None:
     is_chief = core_context.distributed.get_rank() == 0
     if is_chief:
-        # Save the profile results as a checkpoint of the calling Trial (Ryan wouldn't approve).
-        checkpoint_metadata_dict = {"steps_completed": 0}
-        with core_context.checkpoint.store_path(checkpoint_metadata_dict) as (
-            path,
-            _,
-        ):
-            src = pathlib.Path(constants.OUTPUT_FILE_PATH)
-            dst = pathlib.Path(path).joinpath(src.name)
-            shutil.copy(src=src, dst=dst)
-
-        # Then launch the multi-Trial DS AT search
+        # Launch the multi-Trial DS AT search
         # profiling_results_config holds the model profiling results
         # The path to the original config is passed as an arg to dsat_searcher, as this
         # information is also needed.
+        src = pathlib.Path(constants.OUTPUT_FILE_PATH)
         ds_profiler_results = utils.DSProfilerResults(path=src)
         # TODO: Not currently passing the original searcher metric into this experiment.
         profiling_results_config = ds_profiler_results.get_config(
