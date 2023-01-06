@@ -1,10 +1,33 @@
-import json
-import os
+import collections
 import pathlib
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, Optional, Sequence
 
 from dsat import constants
+
+
+def replace_dict(
+    d: Dict[str, Any], u: Dict[str, Any], ignored_keys: Optional[Sequence[str]] = None
+):
+    """Replaces values in dict d with values in dict u.
+
+    Args:
+        d (dict): the target dict to overwrite
+        u (dict): the dict containing the values to overwrite the target dict
+
+    Returns:
+        dict d with values overwritten by the corresponding ones in dict u.
+    """
+    if ignored_keys is None:
+        ignored_keys = []
+    if u is not None:
+        for k, v in u.items():
+            if k not in ignored_keys:
+                if isinstance(v, collections.abc.Mapping):
+                    d[k] = replace_dict(d.get(k, {}), v, ignored_keys)
+                else:
+                    d[k] = v
+    return d
 
 
 def upper_case_dict_key(d: Dict[str, Any], key: str) -> Dict[str, Any]:
@@ -89,17 +112,13 @@ class DSProfilerResults:
         project_name: str,
         exp_name: str,
         entrypoint: str,
-        append_to_name: str = "_results",
+        append_to_name: str = " (autotuning searcher)",
     ) -> Dict[str, Any]:
         config = {
             "entrypoint": entrypoint,
-            "max_restarts": 5,
+            "max_restarts": 0,
             "resources": {"slots_per_trial": 0},
-            "searcher": {
-                "name": "single",
-                "max_length": 0,
-                "metric": "none",
-            },
+            "searcher": constants.SINGLE_SEARCHER_CONFIG,
             "hyperparameters": None,
         }
         if workspace_name:
@@ -111,7 +130,7 @@ class DSProfilerResults:
 
         results_dict = self.get_results_dict_from_path()
 
-        config["hyperparameters"] = {"results": results_dict, "profiled": True}
+        config["hyperparameters"] = {"results": results_dict}
 
         return config
 

@@ -79,8 +79,12 @@ def main(
             if core_context.preempt.should_preempt():
                 return
         if is_chief:
+            reported_value = 0
+            core_context.train.report_validation_metrics(
+                steps_completed=steps_completed, metrics={"placeholder": reported_value}
+            )
             # Report completed value is not needed.
-            op.report_completed(0)
+            op.report_completed(reported_value)
 
 
 if __name__ == "__main__":

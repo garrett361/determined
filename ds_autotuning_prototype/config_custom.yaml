@@ -6,11 +6,10 @@ resources:
   slots_per_trial: 1
 searcher:
   name: custom
-  max_length: 1e3
   metric: placeholder
 hyperparameters:
   dim: 100
-  num_records: 1e3
+  num_records: 1000
   layers: 3
   ds_config:
     train_micro_batch_size_per_gpu: 128

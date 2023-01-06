@@ -2,10 +2,10 @@ import argparse
 import collections
 import copy
 import os
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict
 
 from determined.experimental import client
-from dsat import constants
+from dsat import constants, utils
 from ruamel import yaml
 
 
@@ -20,30 +20,6 @@ def parse_args():
     parser.add_argument("model_dir")
     args = parser.parse_args()
     return args
-
-
-def replace_dict(
-    d: Dict[str, Any], u: Dict[str, Any], ignored_keys: Optional[Sequence[str]] = None
-):
-    """Replaces values in dict d with values in dict u.
-
-    Args:
-        d (dict): the target dict to overwrite
-        u (dict): the dict containing the values to overwrite the target dict
-
-    Returns:
-        dict d with values overwritten by the corresponding ones in dict u.
-    """
-    if ignored_keys is None:
-        ignored_keys = []
-    if u is not None:
-        for k, v in u.items():
-            if k not in ignored_keys:
-                if isinstance(v, collections.abc.Mapping):
-                    d[k] = replace_dict(d.get(k, {}), v, ignored_keys)
-                else:
-                    d[k] = v
-    return d
 
 
 def get_mem_per_gpu(num_params, total_gpus, fp16_enabled, mp_size, zero_stage):
@@ -67,33 +43,33 @@ def get_mem_per_gpu(num_params, total_gpus, fp16_enabled, mp_size, zero_stage):
 
 
 def run_autotuning(args: argparse.Namespace, config_dict: Dict[str, Any]):
-    model_info_config = copy.deepcopy(config_dict)
-    replace_dict(
-        model_info_config["hyperparameters"]["ds_config"],
-        constants.MODEL_INFO_DS_CONFIG,
+    model_info_profiling_config = copy.deepcopy(config_dict)
+    utils.replace_dict(
+        model_info_profiling_config["hyperparameters"]["ds_config"],
+        constants.MODEL_INFO_PROFILING_DS_CONFIG,
     )
-    model_info_config["searcher"] = {
-        "name": "single",
-        "metric": "placeholder",
-        "max_length": constants.MODEL_INFO_MAX_LENGTH,
-    }
-    model_info_config["name"] += "_model_info"
-    project_name = model_info_config.get("project", "")
-    workspace_name = model_info_config.get("workspace", "")
-    exp_name = model_info_config.get("name", "")
+
+    model_info_profiling_config["searcher"] = constants.SINGLE_SEARCHER_CONFIG
+    model_info_profiling_config["name"] += " (model info profile run)"
+
+    project_name = config_dict.get("project", "")
+    workspace_name = config_dict.get("workspace", "")
+    exp_name = config_dict.get("name", "")
+    # Append the autotuning launcher after the original entrypoint.
     # Need distributed launching here to ensure that only the chief launches the follow
     # on script.
-    model_info_config["entrypoint"] += (
+    # TODO: Only launch run_ds_autotune if the original profiling run succeeds.
+    model_info_profiling_config["entrypoint"] += (
         "; python3 -m determined.launch.torch_distributed python3 -m dsat.run_ds_autotune"
         f" -p {project_name} -e {exp_name} -w {workspace_name} -c {args.config_path}"
     )
     # TODO: Need to account for case where config isn't in model_dir, in which case
     # we need to pass its path to the `includes` arg of `create_experiment`
-    model_profile_exp = client.create_experiment(config=model_info_config, model_dir=args.model_dir)
+    client.create_experiment(config=model_info_profiling_config, model_dir=args.model_dir)
 
 
 def run_other_experiment(args: argparse.Namespace, config_dict: Dict[str, Any]):
-    exp = client.create_experiment(config=config_dict, model_dir=args.model_dir)
+    client.create_experiment(config=config_dict, model_dir=args.model_dir)
 
 
 def run():
