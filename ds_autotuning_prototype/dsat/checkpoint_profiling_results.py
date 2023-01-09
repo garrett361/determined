@@ -26,7 +26,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
     distributed = det.core.DistributedContext.from_torch_distributed()
     with det.core.init(distributed=distributed) as core_context:
-        print("CHECKPOINT_OPS_TEST")
-        for op in core_context.searcher.operations():
-            print("OP_LENGTH", op.length)
         main(core_context)

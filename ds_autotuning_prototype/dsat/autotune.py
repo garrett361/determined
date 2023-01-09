@@ -21,33 +21,14 @@ def parse_args():
     return args
 
 
-def get_mem_per_gpu(num_params, total_gpus, fp16_enabled, mp_size, zero_stage):
-
-    # assume the model uses Adam optimizer (GG: inherited assump from DS)
-    params_mem = num_params * (2 if fp16_enabled else 4)
-    gradients_mem = num_params * (2 if fp16_enabled else 4)
-    optimizer_mem = num_params * (16 if fp16_enabled else 8)
-
-    if zero_stage >= 0:
-        optimizer_mem = optimizer_mem / total_gpus
-
-    if zero_stage >= 1:
-        gradients_mem = gradients_mem / total_gpus
-
-    if zero_stage >= 2:
-        params_mem = params_mem / total_gpus
-
-    mem_per_gpu = (params_mem + gradients_mem + optimizer_mem) / mp_size()
-    return mem_per_gpu
-
-
 def run_autotuning(args: argparse.Namespace, config_dict: Dict[str, Any]):
+    # TODO: Add early sanity checking of config, e.g. make sure the optimized metric
+    # name actually exists in the profiler output.
     model_info_profiling_config = copy.deepcopy(config_dict)
     utils.replace_dict(
         model_info_profiling_config["hyperparameters"]["ds_config"],
         constants.MODEL_INFO_PROFILING_DS_CONFIG,
     )
-
     model_info_profiling_config["searcher"] = constants.SINGLE_SEARCHER_CONFIG
     model_info_profiling_config["name"] += " (model info profile run)"
 
@@ -58,6 +39,8 @@ def run_autotuning(args: argparse.Namespace, config_dict: Dict[str, Any]):
     # Need distributed launching here to ensure that only the chief launches the follow
     # on script.
     # TODO: Error handling if profiling run fails.
+    # TODO: Not sure if any of this is compatible with the DS launcher; using
+    # torch_distributed everywhere
     # NOTE: Currently these additional entrypoints only run non-trivial code on the
     # chief, which is why the torch_distributed launcher is needed.
     model_info_profiling_config["entrypoint"] += (
@@ -66,7 +49,10 @@ def run_autotuning(args: argparse.Namespace, config_dict: Dict[str, Any]):
         f" -p {project_name} -e {exp_name} -w {workspace_name} -c {args.config_path}"
     )
     # TODO: Need to account for case where config isn't in model_dir, in which case
-    # we need to pass its path to the `includes` arg of `create_experiment`
+    # we need to pass its path to the `includes` arg of `create_experiment` for later
+    # stages to have access the original config file.
+
+    # TODO: Account for cases where DS is not initialized with yaml config file.
     client.create_experiment(config=model_info_profiling_config, model_dir=args.model_dir)
 
 

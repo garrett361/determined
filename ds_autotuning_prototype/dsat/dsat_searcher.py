@@ -16,11 +16,8 @@ class DSATSearchMethod(searcher.SearchMethod):
         self.running_trials = 0
 
     def _get_list_of_hparams(self) -> List[Dict[str, Any]]:
-        hparams = self.original_config_dict[
-            "hyperparameters"
-        ]  # Just testing by running original exp
-        hparams["ds_config"]["flops_profiler"] = constants.FLOPS_PROFILER_CONFIG
-        return 2 * [hparams]
+        """Generates a list of all hp dict combos which will be tested out."""
+        return 2 * [self.original_config_dict]
 
     ############################################################################
     # Invoked only once, when starting a new experiment. Creates initial list
@@ -109,21 +106,12 @@ def main(core_context: det.core.Context) -> None:
     # Instantiate RemoteSearchRunner
     search_runner = searcher.RemoteSearchRunner(search_method, context=core_context)
 
-    ########################################################################
-    # Run RemoteSearchRunner
-    # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    # 1) Creates new experiment or loads state:
-    #      -> if checkpoint for an experiment exists, then RemoteSearchRunner loads its own state
-    #         and invokes SearchMethod.load_method_state() to restore SearchMethod state;
-    #      -> otherwise, new experiment is created.
-    # 2) Handles communication between the multi-trial experiment and the custom SearchMethod
-    # 3) Exits when the experiment is completed.
-
-    # Do we need to delete the hp field? I think it will just get over-written?
-    del config_dict["hyperparameters"]
-    config_dict["name"] += " (autotuning trials)"
-    print("dict used in search_runner.run", config_dict)
-    search_runner.run(config_dict, model_dir=".")
+    copy_config_dict = copy.deepcopy(config_dict)
+    copy_config_dict["name"] += " (autotuning trial results)"
+    copy_config_dict["resources"] = {"slots_per_trial": 0}
+    copy_config_dict["entrypoint"] = "python3 -m dsat.dsat_experiment_wrapper"
+    print("dict used in search_runner.run", copy_config_dict)
+    search_runner.run(copy_config_dict, model_dir=".")
 
 
 if __name__ == "__main__":

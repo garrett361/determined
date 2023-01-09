@@ -6,7 +6,7 @@ resources:
   slots_per_trial: 1
 searcher:
   name: custom
-  metric: placeholder
+  metric: throughput
 hyperparameters:
   dim: 100
   num_records: 1000

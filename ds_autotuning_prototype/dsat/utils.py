@@ -38,6 +38,9 @@ def replace_dict(
     return d
 
 
+# TODO: The following two dict functions are needed as hacks around the `type` key
+# used by DS for their optimizer with conflicts with our own special usage of this key
+# in the config.
 def upper_case_dict_key(d: Dict[str, Any], key: str) -> Dict[str, Any]:
     upper_d = {}
     for k, v in d.items():
@@ -78,7 +81,7 @@ class DSProfilerResults:
     def __init__(self, path: pathlib.Path) -> None:
         self.path = path
 
-    def get_results_dict_from_path(self) -> Dict[str, float]:
+    def get_results_dict(self) -> Dict[str, float]:
         metrics_with_units = {"iter latency", "FLOPS per GPU", "params per gpu"}
         metrics_without_units = {
             "samples/second",
@@ -106,7 +109,7 @@ class DSProfilerResults:
             for line in output:
                 line = line.strip()
                 for metric in metrics_with_units:
-                    if line.startswith(metric + ":"):
+                    if line.startswith(metric + ":") or line.startswith(metric + " ="):
                         units_factor = units_map[line.split()[-1]]
                         results_dict[metric] = get_decimal_number_in_line(line) * units_factor
                 for metric in metrics_without_units:
@@ -136,7 +139,7 @@ class DSProfilerResults:
         if exp_name:
             config["name"] = exp_name + append_to_name
 
-        results_dict = self.get_results_dict_from_path()
+        results_dict = self.get_results_dict()
 
         config["hyperparameters"] = {"results": results_dict}
 
