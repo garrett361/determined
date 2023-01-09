@@ -3,14 +3,16 @@ workspace: DS_AT_PROTOTYPING
 project: minimal_testing
 max_restarts: 0
 resources:
-  slots_per_trial: 1
+  slots_per_trial: 2
 searcher:
   name: custom
-  metric: throughput
+  metric: samples/second
+  smaller_is_better: False
 hyperparameters:
   dim: 100
   num_records: 1000
   layers: 3
+  # NOTE: dsat code expects usual DS config dict to appear as in the below.
   ds_config:
     train_micro_batch_size_per_gpu: 128
     gradient_accumulation_steps: 1
@@ -20,4 +22,5 @@ hyperparameters:
         lr: 1e-3
     zero_optimization:
       stage: 0
+      # Using torch_distributed's launcher for simplicity. TODO: Use DS launcher instead.
 entrypoint: python3 -m determined.launch.torch_distributed python3 minimal_script.py
