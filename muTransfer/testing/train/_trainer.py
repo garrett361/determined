@@ -1,20 +1,21 @@
-import json
 from typing import Any, Callable, Dict, Generator, Tuple
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
+from torch.utils.data import DataLoader, Dataset, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from torchmetrics import MeanMetric
 
 
 class Trainer:
+    """A super minimal trainer class. Trains for a fixed number of batches. No checkpointing. Only
+    computes and reports loss."""
+
     def __init__(
         self,
         core_context,
-        info,
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
         dataset: Dataset,
@@ -29,6 +30,7 @@ class Trainer:
         self.batch_size = batch_size
         self.metric_agg_rate = metric_agg_rate
 
+        self.trained_batches = 0
         self.rank = core_context.distributed.rank
         self.local_rank = core_context.distributed.local_rank
         self.size = core_context.distributed.size
@@ -38,25 +40,11 @@ class Trainer:
         self.device = "cpu" if not self.is_distributed else f"cuda:{self.rank}"
         self.model.to(self.device)
 
-        if info.latest_checkpoint is None:
-            self.trained_batches = 0
-            self.completed_epochs = 0
-        else:
-            with core_context.checkpoint.restore_path(info.latest_checkpoint) as path:
-                with open(path.joinpath("metadata.json"), "r") as f:
-                    metadata_dict = json.load(f)
-                self.trained_batches = metadata_dict["trained_batches"]
-                self.completed_epochs = metadata_dict["completed_epochs"]
-                model_state_dict = torch.load(path.joinpath("model_state_dict.pth"))
-                self.model.load_state_dict(model_state_dict)
-                optimizer_state_dict = torch.load(path.joinpath("optimizer_state_dict.pth"))
-                self.optimizer.load_state_dict(optimizer_state_dict)
-
         if self.is_distributed:
             dist.init_process_group("nccl")
             self.model = DDP(self.model, device_ids=[self.rank])
 
-        self.dataloader = self.build_dataloader(train=True)
+        self.dataloader = self.build_dataloader()
         self.criterion = criterion
 
         self.loss_metric = MeanMetric()
@@ -64,27 +52,25 @@ class Trainer:
 
     def build_dataloader(self) -> DataLoader:
         if self.is_distributed:
-            sampler = DistributedSampler(self.dataset, shuffle=train)
+            sampler = DistributedSampler(self.dataset)
         else:
-            sampler = RandomSampler(self.dataset) if train else SequentialSampler(self.dataset)
+            sampler = RandomSampler(self.dataset)
         loader = DataLoader(
             self.dataset, batch_size=self.batch_size, sampler=sampler, drop_last=True
         )
         return loader
 
-    def batch_generator(
-        self, train: bool
-    ) -> Generator[Tuple[int, torch.Tensor, torch.Tensor], None, None]:
+    def batch_generator(self) -> Generator[Tuple[int, torch.Tensor, torch.Tensor], None, None]:
         while True:
-            for batch_idx, batch in enumerate(self.dataloader):
+            for batch in self.dataloader:
                 inputs, labels = batch
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
-                yield batch_idx, inputs, labels
+                yield inputs, labels
 
     def train(self) -> None:
         self.model.train()
         for op in self.core_context.searcher.operations():
-            for batch_idx, inputs, labels in self.batch_generator():
+            for inputs, labels in self.batch_generator():
                 self.optimizer.zero_grad()
                 outputs = self.model(inputs)
                 loss = self.get_loss_and_update_metrics(outputs, labels)
@@ -100,9 +86,10 @@ class Trainer:
                     self.reset_metrics()
                 if self.core_context.preempt.should_preempt():
                     return
-                if batch_idx == op.length:
+                if self.trained_batches == op.length:
                     if self.is_chief:
                         op.report_completed(computed_metrics["loss"])
+                    return
 
     def get_loss_and_update_metrics(self, outputs, labels):
         loss = self.criterion(outputs, labels)

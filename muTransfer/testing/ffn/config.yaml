@@ -7,16 +7,18 @@ resources:
 searcher:
   name: single
   metric: arbitrary
+  max_length: 1000 # In units of distributed batches.
 hyperparameters:
   trainer:
-    batch_size: 128
+    batch_size: 512
     metric_agg_rate: 100
   model:
-    dim: 1024
     layers: 10
+    input_dim: 16
+    hidden_dims: 1024
   optimizer:
     lr: 1e-3
   dataset:
     num_records: 100000
-    dim: 1024
-entrypoint: python3 -m determined.launch.torch_distributed python3 ffn/script.py
+    input_dim: 16
+entrypoint: python3 -m determined.launch.torch_distributed python3 -m ffn.script

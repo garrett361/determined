@@ -1,2 +1,2 @@
 #Update deepspeed
-pip install mup
+pip install mup torchmetrics==0.9.2
