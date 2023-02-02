@@ -1,0 +1,22 @@
+name: testing
+workspace: muTransfer
+project: testing
+max_restarts: 0
+resources:
+  slots_per_trial: 1
+searcher:
+  name: single
+  metric: arbitrary
+hyperparameters:
+  trainer:
+    batch_size: 128
+    metric_agg_rate: 100
+  model:
+    dim: 1024
+    layers: 10
+  optimizer:
+    lr: 1e-3
+  dataset:
+    num_records: 100000
+    dim: 1024
+entrypoint: python3 -m determined.launch.torch_distributed python3 ffn/script.py
