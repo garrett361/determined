@@ -1,7 +1,10 @@
-name: testing
-workspace: muTransfer
-project: testing
+name: ffn_testing
+workspace: muTransfer_test
+project: ffn
 max_restarts: 0
+environment:
+  environment_variables:
+    - OMP_NUM_THREADS=1 # Following pytorch dtrain, this environment variable is set to 1 to avoid overloading the system.
 resources:
   slots_per_trial: 1
 searcher:
@@ -9,16 +12,18 @@ searcher:
   metric: arbitrary
   max_length: 1000 # In units of distributed batches.
 hyperparameters:
+  use_mutransfer: true
+  optimizer_name: sgd
   trainer:
     batch_size: 512
     metric_agg_rate: 100
   model:
     layers: 10
     input_dim: 16
-    hidden_dims: 1024
+    width_multiplier: 1024
   optimizer:
     lr: 1e-3
   dataset:
     num_records: 100000
     input_dim: 16
-entrypoint: python3 -m determined.launch.torch_distributed python3 -m ffn.script
+entrypoint: python3 -m determined.launch.torch_distributed python3 -m ffn.main

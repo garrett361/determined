@@ -1,89 +1,152 @@
-import logging
-from typing import Any, Dict, Iterable, List, Optional, Union
+import argparse
+import contextlib
+import copy
+import itertools
+import json
+import os
+import sys
 
-import determined as det
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import train
-from attrdict import AttrDict
-from mup import MuAdam, MuReadout, MuSGD, make_base_shapes, set_base_shapes
-from torch.utils.data import DataLoader, Dataset
-
-
-class RandIdentityDataset(Dataset):
-    """Spits out random identical input/target pairs."""
-
-    def __init__(self, num_records: int, input_dim: int) -> None:
-        self.num_records = num_records
-        self.input_dim = input_dim
-
-    def __len__(self) -> int:
-        return self.num_records
-
-    def __getitem__(self, idx: int) -> torch.Tensor:
-        sample = torch.randn(self.input_dim)
-        return sample, sample
+import pandas as pd
+import workspaces
+from determined.experimental import client
 
 
-class MinimalModel(nn.Module):
-    def __init__(
-        self, input_dim: int, hidden_dims: Union[int, List[int]], layers: Optional[int] = None
-    ) -> None:
-        """Simple dimension preserving model."""
-        super().__init__()
-        self.input_dim = input_dim
-        if isinstance(hidden_dims, int):
-            assert layers is not None, "layers must be specified if hidden_dims is an int"
-            hidden_dims = [hidden_dims for _ in range(layers)]
-
-        hidden_layers = [
-            nn.Linear(w_in, w_out)
-            for w_in, w_out in zip([self.input_dim] + hidden_dims[:-1], hidden_dims)
-        ]
-        self.hidden_layers = nn.ModuleList(hidden_layers)
-        self.readout_layer = MuReadout(hidden_dims[-1], self.input_dim)
-
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        outputs = inputs
-        for layer in self.hidden_layers:
-            outputs = layer(outputs)
-            outputs = outputs.relu()
-        outputs = self.readout_layer(outputs)
-        return outputs
+@contextlib.contextmanager
+def suppress_stdout():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
 
 
-def main(core_context, hparams: AttrDict) -> None:
-    input_dim, hidden_dims, layers = (
-        hparams.model.input_dim,
-        hparams.model.hidden_dims,
-        hparams.model.layers,
+MAX_LENGTH = 100000
+
+DEFAULT_CONFIG = {
+    "name": "ffn",
+    "max_restarts": 5,
+    "resources": {"slots_per_trial": 1, "max_slots": 8},
+    "reproducibility": {"experiment_seed": 42},
+    "environment": {
+        "environment_variables": ["OMP_NUM_THREADS=1"],
+    },
+    "searcher": {
+        "name": "grid",
+        "metric": "loss",
+        "max_length": MAX_LENGTH,
+    },  # In units of distributed batches.
+    "hyperparameters": {
+        "use_mutransfer": True,
+        "optimizer_name": "sgd",
+        "trainer": {"batch_size": 512, "metric_agg_rate": MAX_LENGTH // 10},
+        "model": {"layers": 3, "input_dim": 16, "width_multiplier": 1},
+        "optimizer": {"lr": {"type": "log", "base": 10, "minval": -6, "maxval": 1, "count": 10}},
+        "dataset": {"num_records": 100000, "input_dim": 16},
+    },
+    "entrypoint": "python3 -m determined.launch.torch_distributed python3 -m ffn.main",
+}
+
+
+def parse_args():
+
+    parser = argparse.ArgumentParser(description="HF GLUE DeepSpeedTrainer Loops")
+    parser.add_argument("-u", "--user", type=str, default="determined")
+    parser.add_argument("-p", "--password", type=str, default="")
+    parser.add_argument("-slots", "--slots_per_trial", type=int, nargs="+", default=[1])
+    parser.add_argument("-pn", "--project_name", type=str)
+    parser.add_argument("-w", "--workspace", type=str, default="muTransfer")
+    parser.add_argument("-on", "--optimizer_name", type=str, nargs="+", default=["sgd"])
+    parser.add_argument("-wm", "--width_multiplier", type=int, nargs="+", default=[1])
+    parser.add_argument("-ens", "--exp_name_suffix", type=str, nargs="+", default=[""])
+    parser.add_argument("-ad", "--allow_duplicates", action="store_true")
+    parser.add_argument("-nm", "--no_mutransfer", action="store_true")
+
+    parser.add_argument("-t", "--test", action="store_true")
+    args = parser.parse_args()
+    return args
+
+
+def exp_name_and_config_generator(args):
+    """
+    Loops over provided autotuning_tuner_type and searcher_metric values and yields
+    exp_name, config tuples.
+    """
+    # Various sanity checks, hacks, and dynamic fixes.
+    # Generate experiment names from command line arguments
+    # Append '_test' to the given workspace name, if --test is set.
+    workspace_name = args.workspace + ("_test" if args.test else "")
+
+    with suppress_stdout():
+        client.login(user=args.user, password=args.password)
+
+    workspace = workspaces.Workspace(
+        workspace_name=workspace_name,
+        username=args.user,
+        password=args.password,
+        create_workspace=True,
     )
-    base_model = MinimalModel(input_dim=input_dim, hidden_dims=1, layers=layers)
-    delta_model = MinimalModel(input_dim=input_dim, hidden_dims=2, layers=layers)
-    model = MinimalModel(**hparams.model)
-    set_base_shapes(model, base_model, delta=delta_model)
-    optimizer = MuAdam(model.parameters(), **hparams.optimizer)
-    dataset = RandIdentityDataset(**hparams.dataset)
-    criterion = nn.MSELoss()
-    trainer = train.Trainer(
-        core_context=core_context,
-        model=model,
-        optimizer=optimizer,
-        dataset=dataset,
-        criterion=criterion,
-        **hparams.trainer
+    existing_project_names = workspace.get_all_project_names()
+
+    existing_trials_df = (
+        pd.DataFrame() if args.allow_duplicates else workspace.get_trial_best_val_results_df()
     )
-    trainer.train()
+
+    # Check if a Trial with the same exp_name already exists.
+    existing_exp_names = set()
+    if not existing_trials_df.empty:
+        for _, vals in existing_trials_df.iterrows():
+            try:
+                existing_exp_names.add(vals.exp_name)
+            except AttributeError:
+                pass
+
+    for (optimizer_name, width_multiplier, slots_per_trial, suffix,) in itertools.product(
+        args.optimizer_name,
+        args.width_multiplier,
+        args.slots_per_trial,
+        args.exp_name_suffix,
+    ):
+        # Dynamically generate project and experiment names.
+        if args.project_name:
+            project_name = args.project_name
+        else:
+            project_name = DEFAULT_CONFIG["name"]
+            if project_name not in existing_project_names:
+                existing_project_names.append(project_name)
+                workspace.create_project(project_name)
+
+        exp_name = f"{DEFAULT_CONFIG['name']}.{DEFAULT_CONFIG['searcher']['name']}"
+        exp_name += f".{slots_per_trial}GPU.{width_multiplier}wm.{optimizer_name}"
+        if not args.no_mutransfer:
+            exp_name += ".use_mutransfer"
+        if suffix:
+            exp_name += f".{suffix}"
+
+        if exp_name in existing_exp_names:
+            print(f"Skipping {exp_name}: already exists.")
+            continue
+
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["workspace"] = workspace_name
+        config["project"] = project_name
+        config["name"] = exp_name
+        config["hyperparameters"]["exp_name"] = exp_name  # Added for easy duplication checking.
+        config["hyperparameters"]["optimizer_name"] = optimizer_name
+        config["hyperparameters"]["use_mutransfer"] = args.no_mutransfer
+        config["resources"]["slots_per_trial"] = slots_per_trial
+        config["hyperparameters"]["model"]["width_multiplier"] = width_multiplier
+        yield exp_name, config
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
-    info = det.get_cluster_info()
-    hparams = AttrDict(info.trial.hparams)
+    args = parse_args()
+    for idx, (exp_name, config) in enumerate(exp_name_and_config_generator(args)):
+        print(f"Submitting experiment {idx + 1}: {exp_name}")
+        with suppress_stdout():
+            client.create_experiment(config=config, model_dir=".")
     try:
-        distributed = det.core.DistributedContext.from_torch_distributed()
-    except KeyError:
-        distributed = None
-    with det.core.init(distributed=distributed) as core_context:
-        main(core_context, hparams)
+        print("", 80 * "*", f"Successfully submitted {idx + 1} experiments.", 80 * "~", sep="\n")
+    except NameError:
+        print("", 80 * "*", "No experiments were submitted.", 80 * "~", sep="\n")

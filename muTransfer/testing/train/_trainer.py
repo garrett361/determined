@@ -1,4 +1,6 @@
-from typing import Any, Callable, Dict, Generator, Tuple
+import json
+import logging
+from typing import Any, Callable, Dict, Generator, Optional, Tuple
 
 import torch
 import torch.distributed as dist
@@ -22,6 +24,7 @@ class Trainer:
         criterion: Callable,
         batch_size: int = 2 ** 7,
         metric_agg_rate: int = 10,
+        latest_checkpoint: Optional[str] = None,
     ) -> None:
         self.core_context = core_context
         self.model = model
@@ -30,7 +33,6 @@ class Trainer:
         self.batch_size = batch_size
         self.metric_agg_rate = metric_agg_rate
 
-        self.trained_batches = 0
         self.rank = core_context.distributed.rank
         self.local_rank = core_context.distributed.local_rank
         self.size = core_context.distributed.size
@@ -39,6 +41,24 @@ class Trainer:
         self.is_local_chief = self.local_rank == 0
         self.device = "cpu" if not self.is_distributed else f"cuda:{self.rank}"
         self.model.to(self.device)
+
+        if latest_checkpoint is None:
+            self.trained_batches = 0
+        else:
+            with core_context.checkpoint.restore_path(latest_checkpoint) as path:
+                with open(path.joinpath("metadata.json"), "r") as f:
+                    metadata_dict = json.load(f)
+                self.trained_batches = metadata_dict["trained_batches"]
+                model_state_dict = torch.load(
+                    path.joinpath("model_state_dict.pth"), map_location=self.device
+                )
+                self.model.load_state_dict(
+                    model_state_dict,
+                )
+                optimizer_state_dict = torch.load(
+                    path.joinpath("optimizer_state_dict.pth"), map_location=self.device
+                )
+                self.optimizer.load_state_dict(optimizer_state_dict)
 
         if self.is_distributed:
             dist.init_process_group("nccl")
@@ -77,17 +97,25 @@ class Trainer:
                 loss.backward()
                 self.optimizer.step()
                 self.trained_batches += 1
-                if self.trained_batches % self.metric_agg_rate == 0:
+                finishing_training = self.trained_batches == op.length
+                should_compute_metrics_and_checkpoint = (
+                    self.trained_batches % self.metric_agg_rate == 0 or finishing_training
+                )
+                if should_compute_metrics_and_checkpoint:
                     computed_metrics = self.compute_metrics()
                     if self.is_chief:
                         self.core_context.train.report_training_metrics(
                             steps_completed=self.trained_batches, metrics=computed_metrics
                         )
                     self.reset_metrics()
+                    self.checkpoint()
                 if self.core_context.preempt.should_preempt():
                     return
-                if self.trained_batches == op.length:
+                if finishing_training:
                     if self.is_chief:
+                        self.core_context.train.report_validation_metrics(
+                            steps_completed=self.trained_batches, metrics=computed_metrics
+                        )
                         op.report_completed(computed_metrics["loss"])
                     return
 
@@ -102,3 +130,19 @@ class Trainer:
 
     def reset_metrics(self):
         self.loss_metric.reset()
+
+    def checkpoint(self):
+        if self.is_chief:
+            checkpoint_metadata = {
+                "trained_batches": self.trained_batches,
+                "steps_completed": self.trained_batches,
+            }
+            with self.core_context.checkpoint.store_path(checkpoint_metadata) as (
+                path,
+                _,
+            ):
+                torch.save(self.model.state_dict(), path.joinpath("model_state_dict.pth"))
+                torch.save(
+                    self.optimizer.state_dict(),
+                    path.joinpath("optimizer_state_dict.pth"),
+                )
