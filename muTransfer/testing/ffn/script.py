@@ -37,12 +37,10 @@ DEFAULT_CONFIG = {
         "max_length": MAX_LENGTH,
     },  # In units of distributed batches.
     "hyperparameters": {
-        "use_mutransfer": True,
-        "optimizer_name": "sgd",
         "random_seed": 42,
         "trainer": {"batch_size": 512, "metric_agg_rate": MAX_LENGTH // 10},
-        "model": {"layers": 3, "input_dim": 16, "width_multiplier": 1},
-        "optimizer": {"lr": {"type": "log", "base": 10, "minval": -6, "maxval": 1, "count": 10}},
+        "model": {"input_dim": 16},
+        "optimizer": {"lr": {"type": "log", "base": 10, "minval": -4, "maxval": 0, "count": 10}},
         "dataset": {"num_records": 100000, "input_dim": 16},
     },
     "entrypoint": "python3 -m determined.launch.torch_distributed python3 -m ffn.main",
@@ -59,6 +57,7 @@ def parse_args():
     parser.add_argument("-w", "--workspace", type=str, default="muTransfer")
     parser.add_argument("-on", "--optimizer_name", type=str, nargs="+", default=["sgd"])
     parser.add_argument("-wm", "--width_multiplier", type=int, nargs="+", default=[1])
+    parser.add_argument("-nhl", "--num_hidden_layers", type=int, nargs="+", default=[3])
     parser.add_argument("-ens", "--exp_name_suffix", type=str, nargs="+", default=[""])
     parser.add_argument("-ad", "--allow_duplicates", action="store_true")
     parser.add_argument("-nm", "--no_mutransfer", action="store_true")
@@ -102,10 +101,17 @@ def exp_name_and_config_generator(args):
             except AttributeError:
                 pass
 
-    for (optimizer_name, width_multiplier, slots_per_trial, suffix,) in itertools.product(
+    for (
+        optimizer_name,
+        width_multiplier,
+        slots_per_trial,
+        num_hidden_layers,
+        suffix,
+    ) in itertools.product(
         args.optimizer_name,
         args.width_multiplier,
         args.slots_per_trial,
+        args.num_hidden_layers,
         args.exp_name_suffix,
     ):
         # Dynamically generate project and experiment names.
@@ -118,7 +124,9 @@ def exp_name_and_config_generator(args):
                 workspace.create_project(project_name)
 
         exp_name = f"{DEFAULT_CONFIG['name']}.{DEFAULT_CONFIG['searcher']['name']}"
-        exp_name += f".{slots_per_trial}GPU.{width_multiplier}wm.{optimizer_name}"
+        exp_name += (
+            f".{slots_per_trial}GPU.{width_multiplier}wm.{num_hidden_layers}hl.{optimizer_name}"
+        )
         if not args.no_mutransfer:
             exp_name += ".use_mutransfer"
         if suffix:
@@ -134,9 +142,10 @@ def exp_name_and_config_generator(args):
         config["name"] = exp_name
         config["hyperparameters"]["exp_name"] = exp_name  # Added for easy duplication checking.
         config["hyperparameters"]["optimizer_name"] = optimizer_name
-        config["hyperparameters"]["use_mutransfer"] = args.no_mutransfer
+        config["hyperparameters"]["use_mutransfer"] = not args.no_mutransfer
         config["resources"]["slots_per_trial"] = slots_per_trial
         config["hyperparameters"]["model"]["width_multiplier"] = width_multiplier
+        config["hyperparameters"]["model"]["num_hidden_layers"] = num_hidden_layers
         yield exp_name, config
 
 

@@ -36,12 +36,12 @@ class MinimalModel(nn.Module):
         use_mutransfer: bool,
         input_dim: int,
         width_multiplier: int,
-        layers: Optional[int] = None,
+        num_hidden_layers: Optional[int] = None,
     ) -> None:
         """Simple dimension preserving model."""
         super().__init__()
         self.input_dim = input_dim
-        hidden_dims = [width_multiplier for _ in range(layers)]
+        hidden_dims = [width_multiplier for _ in range(num_hidden_layers)]
 
         hidden_layers = [
             nn.Linear(w_in, w_out)
@@ -60,7 +60,7 @@ class MinimalModel(nn.Module):
         return outputs
 
 
-def seed_everything(seed: int = 42):
+def seed_everything(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.random.manual_seed(seed)
@@ -68,9 +68,9 @@ def seed_everything(seed: int = 42):
 
 def main(core_context, hparams: AttrDict, latest_checkpoint: Optional[str] = None) -> None:
     seed_everything(seed=hparams.get("radom_seed", 42))
-    input_dim, layers = (
+    input_dim, num_hidden_layers = (
         hparams.model.input_dim,
-        hparams.model.layers,
+        hparams.model.num_hidden_layers,
     )
     model = MinimalModel(use_mutransfer=hparams.use_mutransfer, **hparams.model)
     if hparams.use_mutransfer:
@@ -79,13 +79,13 @@ def main(core_context, hparams: AttrDict, latest_checkpoint: Optional[str] = Non
             use_mutransfer=hparams.use_mutransfer,
             input_dim=input_dim,
             width_multiplier=1,
-            layers=layers,
+            num_hidden_layers=num_hidden_layers,
         )
         delta_model = MinimalModel(
             use_mutransfer=hparams.use_mutransfer,
             input_dim=input_dim,
             width_multiplier=2,
-            layers=layers,
+            num_hidden_layers=num_hidden_layers,
         )
         set_base_shapes(model, base_model, delta=delta_model)
     optimizer_class_dict = {
