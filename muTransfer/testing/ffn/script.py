@@ -28,7 +28,6 @@ DEFAULT_CONFIG = {
     "name": "ffn",
     "max_restarts": 5,
     "resources": {"slots_per_trial": 1, "max_slots": 8},
-    "reproducibility": {"experiment_seed": 42},
     "environment": {
         "environment_variables": ["OMP_NUM_THREADS=1"],
     },
@@ -40,6 +39,7 @@ DEFAULT_CONFIG = {
     "hyperparameters": {
         "use_mutransfer": True,
         "optimizer_name": "sgd",
+        "random_seed": 42,
         "trainer": {"batch_size": 512, "metric_agg_rate": MAX_LENGTH // 10},
         "model": {"layers": 3, "input_dim": 16, "width_multiplier": 1},
         "optimizer": {"lr": {"type": "log", "base": 10, "minval": -6, "maxval": 1, "count": 10}},

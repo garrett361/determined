@@ -1,7 +1,9 @@
 import logging
+import random
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 import determined as det
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -58,10 +60,16 @@ class MinimalModel(nn.Module):
         return outputs
 
 
+def seed_everything(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
+
+
 def main(core_context, hparams: AttrDict, latest_checkpoint: Optional[str] = None) -> None:
-    input_dim, width_multiplier, layers = (
+    seed_everything(seed=hparams.get("radom_seed", 42))
+    input_dim, layers = (
         hparams.model.input_dim,
-        hparams.model.width_multiplier,
         hparams.model.layers,
     )
     model = MinimalModel(use_mutransfer=hparams.use_mutransfer, **hparams.model)
