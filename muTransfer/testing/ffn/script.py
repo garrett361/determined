@@ -36,10 +36,13 @@ DEFAULT_CONFIG = {
         "metric": "loss",
         "max_length": MAX_LENGTH,
     },  # In units of distributed batches.
+    # None fields are populated by argparse.
     "hyperparameters": {
+        "use_mutransfer": None,
+        "optimizer_name": None,
         "random_seed": 42,
         "trainer": {"batch_size": 512, "metric_agg_rate": MAX_LENGTH // 10},
-        "model": {"input_dim": 16},
+        "model": {"num_hidden_layers": None, "input_dim": 16, "width_multiplier": None},
         "optimizer": {"lr": {"type": "log", "base": 10, "minval": -4, "maxval": 0, "count": 10}},
         "dataset": {"num_records": 100000, "input_dim": 16},
     },
