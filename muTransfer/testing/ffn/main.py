@@ -19,14 +19,13 @@ class RandIdentityDataset(Dataset):
     """Spits out random identical input/target pairs."""
 
     def __init__(self, num_records: int, input_dim: int) -> None:
-        self.num_records = num_records
-        self.input_dim = input_dim
+        self.records = torch.randn(num_records, self.input_dim)
 
     def __len__(self) -> int:
-        return self.num_records
+        return len(self.records)
 
     def __getitem__(self, idx: int) -> torch.Tensor:
-        sample = torch.randn(self.input_dim)
+        sample = self.records[idx]
         return sample, sample
 
 

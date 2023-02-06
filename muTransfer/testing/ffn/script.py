@@ -44,7 +44,7 @@ DEFAULT_CONFIG = {
         "trainer": {"batch_size": 512, "metric_agg_rate": MAX_LENGTH // 10},
         "model": {"num_hidden_layers": None, "input_dim": 16, "width_multiplier": None},
         "optimizer": {"lr": {"type": "log", "base": 10, "minval": -4, "maxval": 0, "count": 10}},
-        "dataset": {"num_records": 100000, "input_dim": 16},
+        "dataset": {"num_records": 10000, "input_dim": 16},
     },
     "entrypoint": "python3 -m determined.launch.torch_distributed python3 -m ffn.main",
 }
