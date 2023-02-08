@@ -2,6 +2,7 @@ import json
 import logging
 import random
 import time
+from typing import Optional
 
 import determined as det
 from determined.experimental import client
@@ -14,6 +15,7 @@ class CheckpointTester:
 
         self.trial_id = self.info.trial.trial_id
         self.trial_reference = client.get_trial(self.trial_id)
+        self.smaller_is_better = self.info.trial._config["searcher"]["smaller_is_better"]
 
         self.rank = core_context.distributed.rank
         self.local_rank = core_context.distributed.local_rank
@@ -50,6 +52,30 @@ class CheckpointTester:
         ckpt = self.trial_reference.select_checkpoint(*args, **kwargs)
         return ckpt
 
+    def get_all_best_sorted_checkpoints(self, include_deleted: bool = False):
+        checkpoints = self.select_checkpoint(
+            best=True,
+            num_checkpoints="all",
+            smaller_is_better=self.smaller_is_better,
+            sort_by="arbitrary_metric_name",
+        )
+        if not include_deleted:
+            checkpoints = [c for c in checkpoints if c.state.name != "DELETED"]
+        return checkpoints
+
+    def delete_worst_checkpoints(
+        self, num_to_keep: Optional[int] = None, num_to_delete: Optional[int] = None
+    ):
+        best_checkpoints = self.get_all_best_sorted_checkpoints()
+        assert not (num_to_keep is not None and num_to_delete is not None)
+        if num_to_keep is not None:
+            checkpoints_to_delete = best_checkpoints[num_to_keep:]
+        elif num_to_delete is not None:
+            checkpoints_to_delete = best_checkpoints[-num_to_delete:]
+
+        for c in checkpoints_to_delete:
+            c.delete()
+
 
 def main() -> None:
     info = det.get_cluster_info()
@@ -59,54 +85,16 @@ def main() -> None:
         distributed = None
     with det.core.init(distributed=distributed) as core_context:
         checkpoint_tester = CheckpointTester(info, core_context)
-        # Create some random checkpoints.
-        for _ in range(5):
+
+        # Create random checkpoints, gc-ing
+        for _ in range(9):
             checkpoint_tester.save_checkpoint()
-            checkpoint_tester.select_checkpoint(
-                best=True,
-                num_checkpoints="all",
-                smaller_is_better=False,
-                sort_by="arbitrary_metric_name",
-            )
-
-        # Get all checkpoints.
-        all_checkpoints = checkpoint_tester.select_checkpoint(
-            best=True,
-            num_checkpoints="all",
-            smaller_is_better=False,
-            sort_by="arbitrary_metric_name",
-        )
-
-        logging.info("Deleting all checkpoints.")
-        for ckpt in all_checkpoints:
-            ckpt.delete()
-
-        # Pause to ensure deletion.
-        logging.info("Pausing to ensure deletion...")
-        time.sleep(10)
-
-        # Print the state of all checkpoints.
-        # Need to re-load checkpoints because their state attr is defined upon construction.
-        reloaded_checkpoints = checkpoint_tester.select_checkpoint(
-            best=True,
-            num_checkpoints="all",
-            smaller_is_better=False,
-            sort_by="arbitrary_metric_name",
-        )
-        reloaded_checkpoint_states = [c.state for c in reloaded_checkpoints]
-        assert all(
-            [s.DELETED for s in reloaded_checkpoint_states]
-        ), "Some checkpoints were not deleted!"
-        logging.info(f"All checkpoints successfully deleted.")
-
-        # Wait a bit and try to delete them again.
-        logging.info("Attempting to delete again.")
-        time.sleep(5)
-        try:
-            for ckpt in reloaded_checkpoints:
-                ckpt.delete()
-        except Exception as e:
-            logging.info(f"Repeated deletion attempt raised error {e}")
+            time.sleep(2)
+            print(checkpoint_tester.get_all_best_sorted_checkpoints())
+            checkpoint_tester.delete_worst_checkpoints(num_to_keep=3)
+            time.sleep(2)
+            num_non_deleted_checkpoints = len(checkpoint_tester.get_all_best_sorted_checkpoints())
+            logging.info(f"Number of non-deleted checkpoints: {num_non_deleted_checkpoints}")
 
 
 if __name__ == "__main__":
