@@ -485,6 +485,7 @@ type WorkloadContainer struct {
 	// checkpoint.
 	//
 	// Types that are assignable to Workload:
+	//
 	//	*WorkloadContainer_Training
 	//	*WorkloadContainer_Validation
 	//	*WorkloadContainer_Checkpoint
@@ -1366,6 +1367,7 @@ type UpdateTrialTagsRequest struct {
 	// the possible patch targets.
 	//
 	// Types that are assignable to Target:
+	//
 	//	*UpdateTrialTagsRequest_Filters
 	//	*UpdateTrialTagsRequest_Trial
 	Target isUpdateTrialTagsRequest_Target `protobuf_oneof:"target"`
@@ -1769,7 +1771,7 @@ func (x *CreateTrialsCollectionRequest) GetSorter() *TrialSorter {
 	return nil
 }
 
-//  Response message to CreateTrialCollection.
+// Response message to CreateTrialCollection.
 type CreateTrialsCollectionResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

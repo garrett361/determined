@@ -311,6 +311,13 @@ class Checkpoint:
         ckpt_path = self.download(path)
         return Checkpoint.load_from_path(ckpt_path, tags=tags, **kwargs)
 
+    def delete(self):
+        """Request deletion of the current checkpoint."""
+        logging.info(f"Requesting deletion of checkpoint {self.uuid}")
+        delete_body = bindings.v1DeleteCheckpointsRequest(checkpointUuids=[self.uuid])
+        bindings.delete_DeleteCheckpoints(self._session, body=delete_body)
+        pass
+
     def _push_metadata(self) -> None:
         # TODO: in a future version of this REST API, an entire, well-formed Checkpoint object.
         req = bindings.v1PostCheckpointMetadataRequest(

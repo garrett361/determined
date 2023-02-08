@@ -1,5 +1,7 @@
 import enum
-from typing import Any, Iterable, List, Optional
+from typing import Any, Iterable, List, Literal, Optional, Union
+
+from tensorflow import reverse
 
 from determined.common import api
 from determined.common.api import bindings, logs
@@ -93,7 +95,8 @@ class TrialReference:
         self,
         sort_by: Optional[str] = None,
         smaller_is_better: Optional[bool] = None,
-    ) -> checkpoint.Checkpoint:
+        num_checkpoints: Optional[int] = None,
+    ) -> Union[checkpoint.Checkpoint, List[checkpoint.Checkpoint]]:
         """
         Return the :class:`~determined.experimental.Checkpoint` instance with the best
         validation metric as defined by the ``sort_by`` and ``smaller_is_better``
@@ -111,17 +114,21 @@ class TrialReference:
                 from the experiment's configuration is used.
         """
         return self.select_checkpoint(
-            best=True, sort_by=sort_by, smaller_is_better=smaller_is_better
+            best=True,
+            sort_by=sort_by,
+            smaller_is_better=smaller_is_better,
+            num_checkpoints=num_checkpoints,
         )
 
     def select_checkpoint(
         self,
         latest: bool = False,
         best: bool = False,
-        uuid: Optional[str] = None,
+        uuid: Optional[Union[List[str], str]] = None,
         sort_by: Optional[str] = None,
         smaller_is_better: Optional[bool] = None,
-    ) -> checkpoint.Checkpoint:
+        num_checkpoints: Optional[Union[int, Literal["all"]]] = None,
+    ) -> Union[checkpoint.Checkpoint, List[checkpoint.Checkpoint]]:
         """
         Return the :class:`~determined.experimental.Checkpoint` instance with the best
         validation metric as defined by the ``sort_by`` and ``smaller_is_better``
@@ -162,8 +169,17 @@ class TrialReference:
             )
 
         if uuid:
-            resp = bindings.get_GetCheckpoint(self._session, checkpointUuid=uuid)
-            return checkpoint.Checkpoint._from_bindings(resp.checkpoint, self._session)
+            assert num_checkpoints is None, "If uuid is provided, num_checkpoints must be omitted."
+            if isinstance(uuid, str):
+                resp = bindings.get_GetCheckpoint(self._session, checkpointUuid=uuid)
+                return checkpoint.Checkpoint._from_bindings(resp.checkpoint, self._session)
+            else:
+                resps = (
+                    bindings.get_GetCheckpoint(self._session, checkpointUuid=item) for item in uuid
+                )
+                return [
+                    checkpoint.Checkpoint._from_bindings(r.checkpoint, self._session) for r in resps
+                ]
 
         def get_one(offset: int) -> bindings.v1GetTrialCheckpointsResponse:
             return bindings.get_GetTrialCheckpoints(
@@ -186,7 +202,12 @@ class TrialReference:
             raise AssertionError("No checkpoint found for trial {}".format(self.id))
 
         if latest:
-            return checkpoints[0]
+            if num_checkpoints is None:
+                return checkpoints[0]
+            elif num_checkpoints == "all":
+                return checkpoints
+            else:
+                return checkpoints[:num_checkpoints]
 
         if not sort_by:
             training = checkpoints[0].training
@@ -210,14 +231,19 @@ class TrialReference:
         if not checkpoints_with_metric:
             raise AssertionError(f"No checkpoint for trial {self.id} has metric {sort_by}")
 
-        best_checkpoint_func = min if smaller_is_better else max
-
         def key(ckpt: checkpoint.Checkpoint) -> Any:
             training = ckpt.training
             assert training
             return training.validation_metrics["avgMetrics"][sort_by]
 
-        return best_checkpoint_func(checkpoints_with_metric, key=key)
+        # TODO: Avoid sort when returning only one checkpoint.
+        checkpoints_with_metric.sort(key=key, reverse=not smaller_is_better)
+        if num_checkpoints is None:
+            return checkpoints_with_metric[0]
+        elif num_checkpoints == "all":
+            return checkpoints
+        else:
+            return checkpoints_with_metric[:num_checkpoints]
 
     def __repr__(self) -> str:
         return "Trial(id={})".format(self.id)

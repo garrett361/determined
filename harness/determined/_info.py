@@ -176,7 +176,7 @@ class ClusterInfo:
         print("container_rank", info.container_rank)
 
         if info.task_type == "TRIAL":
-            print("trial.id", info.trial.id)
+            print("trial.trial_id", info.trial.trial_id)
             print("trial.hparams", info.trial.hparams)
 
     .. warning::
