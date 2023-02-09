@@ -37,6 +37,7 @@ class MinimalModel(nn.Module):
         """Simple dimension preserving model."""
         super().__init__()
         self.input_dim = input_dim
+        self.output_dim = output_dim
         hidden_dims = [width_multiplier for _ in range(num_hidden_layers)]
 
         hidden_layers = [

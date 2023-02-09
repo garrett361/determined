@@ -22,7 +22,8 @@ def suppress_stdout():
             sys.stdout = old_stdout
 
 
-MAX_LENGTH = 10
+CIFAR10_TRAIN_RECORDS = 50000
+MAX_LENGTH = 20 * CIFAR10_TRAIN_RECORDS
 NAME = "ffn_cifar10"
 
 DEFAULT_CONFIG = {
@@ -49,7 +50,7 @@ DEFAULT_CONFIG = {
             "output_dim": 10,
             "width_multiplier": None,
         },
-        "optimizer": {"lr": {"type": "log", "base": 10, "minval": -4, "maxval": 0, "count": 10}},
+        "optimizer": {"lr": {"type": "log", "base": 10, "minval": -6, "maxval": -1, "count": 10}},
     },
     "entrypoint": f"python3 -m determined.launch.torch_distributed python3 -m {NAME}.main",
 }

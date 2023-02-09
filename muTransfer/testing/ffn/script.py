@@ -23,9 +23,10 @@ def suppress_stdout():
 
 
 MAX_LENGTH = 100000
+NAME = "ffn"
 
 DEFAULT_CONFIG = {
-    "name": "ffn",
+    "name": NAME,
     "max_restarts": 5,
     "resources": {"slots_per_trial": 1, "max_slots": 8},
     "environment": {
@@ -46,7 +47,7 @@ DEFAULT_CONFIG = {
         "optimizer": {"lr": {"type": "log", "base": 10, "minval": -4, "maxval": 0, "count": 10}},
         "dataset": {"num_records": 10000, "input_dim": 16},
     },
-    "entrypoint": "python3 -m determined.launch.torch_distributed python3 -m ffn.main",
+    "entrypoint": f"python3 -m determined.launch.torch_distributed python3 -m {NAME}.main",
 }
 
 

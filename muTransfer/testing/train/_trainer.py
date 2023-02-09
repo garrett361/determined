@@ -102,6 +102,7 @@ class Trainer:
                     self.trained_batches % self.metric_agg_rate == 0 or finishing_training
                 )
                 if should_compute_metrics_and_checkpoint:
+                    op.report_progress(self.trained_batches)
                     computed_metrics = self.compute_metrics()
                     if self.is_chief:
                         self.core_context.train.report_training_metrics(
