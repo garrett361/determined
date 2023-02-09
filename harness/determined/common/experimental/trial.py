@@ -1,6 +1,7 @@
 import enum
 from typing import Any, Iterable, List, Literal, Optional, Union
 
+from numpy import sort
 from tensorflow import reverse
 
 from determined.common import api
@@ -241,7 +242,7 @@ class TrialReference:
         if num_checkpoints is None:
             return checkpoints_with_metric[0]
         elif num_checkpoints == "all":
-            return checkpoints
+            return checkpoints_with_metric
         else:
             return checkpoints_with_metric[:num_checkpoints]
 

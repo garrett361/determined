@@ -1,7 +1,7 @@
 name: checkpoint_tester
 max_restarts: 0
 checkpoint_storage:
-  save_trial_best: 3
+  save_trial_best: 10
 resources:
   slots_per_trial: 1
 searcher:
@@ -9,4 +9,4 @@ searcher:
   metric: arbitrary_metric_name
   max_length: 1
   smaller_is_better: false
-entrypoint: python -m determined.launch.torch_distributed -- python3 main.py
+entrypoint: python -m determined.launch.torch_distributed -- python3 -m keep_three_largest_test.main

@@ -6,4 +6,4 @@ searcher:
   name: single
   metric: arbitrary_metric_name
   max_length: 1
-entrypoint: python -m determined.launch.torch_distributed -- python3 main.py
+entrypoint: python -m determined.launch.torch_distributed -- python3 -m double_deletion_test.main
