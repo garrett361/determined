@@ -12,7 +12,7 @@ from torchmetrics import MeanMetric
 
 
 class Trainer:
-    """A super minimal trainer class. Trains for a fixed number of batches. No checkpointing. Only
+    """A super minimal trainer class. Trains for a fixed number of batches.  Only
     computes and reports loss."""
 
     def __init__(
@@ -39,7 +39,7 @@ class Trainer:
         self.is_distributed = self.size > 1
         self.is_chief = self.rank == 0
         self.is_local_chief = self.local_rank == 0
-        self.device = "cpu" if not self.is_distributed else f"cuda:{self.rank}"
+        self.device = f"cuda:{self.rank}"
         self.model.to(self.device)
 
         if latest_checkpoint is None:
@@ -98,8 +98,11 @@ class Trainer:
                 self.optimizer.step()
                 self.trained_batches += 1
                 finishing_training = self.trained_batches == op.length
+                should_preempt = self.core_context.preempt.should_preempt()
                 should_compute_metrics_and_checkpoint = (
-                    self.trained_batches % self.metric_agg_rate == 0 or finishing_training
+                    self.trained_batches % self.metric_agg_rate == 0
+                    or finishing_training
+                    or should_preempt
                 )
                 if should_compute_metrics_and_checkpoint:
                     op.report_progress(self.trained_batches)
@@ -110,7 +113,7 @@ class Trainer:
                         )
                     self.reset_metrics()
                     self.checkpoint()
-                if self.core_context.preempt.should_preempt():
+                if should_preempt:
                     return
                 if finishing_training:
                     if self.is_chief:
@@ -122,7 +125,7 @@ class Trainer:
 
     def get_loss_and_update_metrics(self, outputs, labels):
         loss = self.criterion(outputs, labels)
-        self.loss_metric(loss)
+        self.loss_metric(loss.item())
         return loss
 
     def compute_metrics(self, prefix: str = "") -> Dict[str, Any]:
