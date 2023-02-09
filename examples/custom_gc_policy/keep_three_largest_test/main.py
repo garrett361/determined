@@ -6,11 +6,6 @@ from tester_class import CheckpointTester
 
 import determined as det
 
-"""
-Dynamically delete all but the three best checkpoints during 'training'. The config's gc
-policy is set to instead keep up to ten checkpoints.
-"""
-
 
 def main() -> None:
     info = det.get_cluster_info()
@@ -21,7 +16,7 @@ def main() -> None:
     with det.core.init(distributed=distributed) as core_context:
         checkpoint_tester = CheckpointTester(info, core_context, "arbitrary_metric_name")
 
-        # Create random checkpoints, gc-ing
+        # Create random checkpoints and dynamically delete all but the worst three after each write.
         for _ in range(9):
             checkpoint_tester.save_checkpoint()
             time.sleep(3)

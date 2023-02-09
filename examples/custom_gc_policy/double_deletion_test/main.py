@@ -40,7 +40,7 @@ def main() -> None:
         logging.info("Pausing to ensure deletion...")
         time.sleep(10)
 
-        # Print the state of all checkpoints.
+        # Verify all checkpoints are deleted.
         # Need to re-load checkpoints because their state attr is defined upon construction.
         reloaded_checkpoints = checkpoint_tester.select_checkpoint(
             best=True,
@@ -54,14 +54,10 @@ def main() -> None:
         ), "Some checkpoints were not deleted!"
         logging.info(f"All checkpoints successfully deleted.")
 
-        # Wait a bit and try to delete them again.
+        # Try to delete them again and check whether it errors.
         logging.info("Attempting to delete again.")
-        time.sleep(5)
-        try:
-            for ckpt in reloaded_checkpoints:
-                ckpt.delete()
-        except Exception as e:
-            logging.info(f"Repeated deletion attempt raised error {e}")
+        for ckpt in reloaded_checkpoints:
+            ckpt.delete()
 
 
 if __name__ == "__main__":

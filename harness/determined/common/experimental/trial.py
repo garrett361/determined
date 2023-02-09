@@ -1,8 +1,6 @@
 import enum
 from typing import Any, Iterable, List, Literal, Optional, Union
 
-from numpy import sort
-from tensorflow import reverse
 
 from determined.common import api
 from determined.common.api import bindings, logs
