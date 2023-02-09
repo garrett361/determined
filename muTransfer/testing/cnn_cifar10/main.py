@@ -13,51 +13,12 @@ from mup import MuAdam, MuAdamW, MuReadout, MuSGD, set_base_shapes
 from tensorflow._api.v2.train import latest_checkpoint
 from torch.optim import SGD, Adam, AdamW
 from torch.utils.data import DataLoader, Dataset
+from torchvision import datasets, transforms
 
+DATA_ROOT = "/run/determined/workdir/shared_fs/data"
 
-class RandIdentityDataset(Dataset):
-    """Spits out random identical input/target pairs."""
-
-    def __init__(self, num_records: int, input_dim: int) -> None:
-        self.input_dim = input_dim
-        self.records = torch.randn(num_records, self.input_dim)
-
-    def __len__(self) -> int:
-        return len(self.records)
-
-    def __getitem__(self, idx: int) -> torch.Tensor:
-        sample = self.records[idx]
-        return sample, sample
-
-
-class MinimalModel(nn.Module):
-    def __init__(
-        self,
-        use_mutransfer: bool,
-        input_dim: int,
-        width_multiplier: int,
-        num_hidden_layers: Optional[int] = None,
-    ) -> None:
-        """Simple dimension preserving model."""
-        super().__init__()
-        self.input_dim = input_dim
-        hidden_dims = [width_multiplier for _ in range(num_hidden_layers)]
-
-        hidden_layers = [
-            nn.Linear(w_in, w_out)
-            for w_in, w_out in zip([self.input_dim] + hidden_dims[:-1], hidden_dims)
-        ]
-        self.hidden_layers = nn.ModuleList(hidden_layers)
-        readout_class = MuReadout if use_mutransfer else nn.Linear
-        self.readout_layer = readout_class(hidden_dims[-1], self.input_dim)
-
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        outputs = inputs
-        for layer in self.hidden_layers:
-            outputs = layer(outputs)
-            outputs = outputs.relu()
-        outputs = self.readout_layer(outputs)
-        return outputs
+transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
+mnist_train = datasets.MNIST(root=DATA_ROOT, train=True)
 
 
 def seed_everything(seed):
@@ -95,7 +56,7 @@ def main(core_context, hparams: AttrDict, latest_checkpoint: Optional[str] = Non
     }
     optimizer_name = hparams.optimizer_name
     optimizer = optimizer_class_dict[optimizer_name](model.parameters(), **hparams.optimizer)
-    dataset = RandIdentityDataset(**hparams.dataset)
+    dataset = mnist_train
     criterion = nn.MSELoss()
     trainer = train.Trainer(
         core_context=core_context,

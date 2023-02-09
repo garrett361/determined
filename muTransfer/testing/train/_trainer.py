@@ -72,7 +72,7 @@ class Trainer:
 
     def build_dataloader(self) -> DataLoader:
         if self.is_distributed:
-            sampler = DistributedSampler(self.dataset)
+            sampler = DistributedSampler(self.dataset, shufle=True)
         else:
             sampler = RandomSampler(self.dataset)
         loader = DataLoader(

@@ -13,21 +13,16 @@ from mup import MuAdam, MuAdamW, MuReadout, MuSGD, set_base_shapes
 from tensorflow._api.v2.train import latest_checkpoint
 from torch.optim import SGD, Adam, AdamW
 from torch.utils.data import DataLoader, Dataset
+from torchvision import datasets, transforms
 
-
-class RandIdentityDataset(Dataset):
-    """Spits out random identical input/target pairs."""
-
-    def __init__(self, num_records: int, input_dim: int) -> None:
-        self.input_dim = input_dim
-        self.records = torch.randn(num_records, self.input_dim)
-
-    def __len__(self) -> int:
-        return len(self.records)
-
-    def __getitem__(self, idx: int) -> torch.Tensor:
-        sample = self.records[idx]
-        return sample, sample
+DATA_ROOT = "/run/determined/workdir/shared_fs/data"
+transform = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ]
+)
+cifar10_train = datasets.CIFAR10(root=DATA_ROOT, train=True, transform=transform)
 
 
 class MinimalModel(nn.Module):
@@ -35,6 +30,7 @@ class MinimalModel(nn.Module):
         self,
         use_mutransfer: bool,
         input_dim: int,
+        output_dim: int,
         width_multiplier: int,
         num_hidden_layers: Optional[int] = None,
     ) -> None:
@@ -49,10 +45,11 @@ class MinimalModel(nn.Module):
         ]
         self.hidden_layers = nn.ModuleList(hidden_layers)
         readout_class = MuReadout if use_mutransfer else nn.Linear
-        self.readout_layer = readout_class(hidden_dims[-1], self.input_dim)
+        self.readout_layer = readout_class(hidden_dims[-1], self.output_dim)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        outputs = inputs
+        # Need to flatten first.
+        outputs = inputs.flatten(start_dim=1)
         for layer in self.hidden_layers:
             outputs = layer(outputs)
             outputs = outputs.relu()
@@ -68,9 +65,10 @@ def seed_everything(seed):
 
 def main(core_context, hparams: AttrDict, latest_checkpoint: Optional[str] = None) -> None:
     seed_everything(seed=hparams.get("radom_seed", 42))
-    input_dim, num_hidden_layers = (
+    input_dim, num_hidden_layers, output_dim = (
         hparams.model.input_dim,
         hparams.model.num_hidden_layers,
+        hparams.model.output_dim,
     )
     model = MinimalModel(use_mutransfer=hparams.use_mutransfer, **hparams.model)
     if hparams.use_mutransfer:
@@ -78,12 +76,14 @@ def main(core_context, hparams: AttrDict, latest_checkpoint: Optional[str] = Non
         base_model = MinimalModel(
             use_mutransfer=hparams.use_mutransfer,
             input_dim=input_dim,
+            output_dim=output_dim,
             width_multiplier=1,
             num_hidden_layers=num_hidden_layers,
         )
         delta_model = MinimalModel(
             use_mutransfer=hparams.use_mutransfer,
             input_dim=input_dim,
+            output_dim=output_dim,
             width_multiplier=2,
             num_hidden_layers=num_hidden_layers,
         )
@@ -95,8 +95,8 @@ def main(core_context, hparams: AttrDict, latest_checkpoint: Optional[str] = Non
     }
     optimizer_name = hparams.optimizer_name
     optimizer = optimizer_class_dict[optimizer_name](model.parameters(), **hparams.optimizer)
-    dataset = RandIdentityDataset(**hparams.dataset)
-    criterion = nn.MSELoss()
+    dataset = cifar10_train
+    criterion = nn.CrossEntropyLoss()
     trainer = train.Trainer(
         core_context=core_context,
         model=model,
