@@ -1,4 +1,4 @@
-name: checkpoint_tester
+name: double_deletion_test
 max_restarts: 0
 resources:
   slots_per_trial: 1

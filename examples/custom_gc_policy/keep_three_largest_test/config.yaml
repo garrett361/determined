@@ -1,4 +1,4 @@
-name: checkpoint_tester
+name: keep_three_largest_test
 max_restarts: 0
 checkpoint_storage:
   save_trial_best: 10
