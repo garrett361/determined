@@ -22,17 +22,17 @@ def suppress_stdout():
             sys.stdout = old_stdout
 
 
-CIFAR10_TRAIN_RECORDS = 50000
-MAX_LENGTH = 20 * CIFAR10_TRAIN_RECORDS
+MAX_LENGTH = 20
 NAME = "ffn_cifar10"
 
 DEFAULT_CONFIG = {
     "name": NAME,
-    "max_restarts": 5,
+    "max_restarts": 3,
     "resources": {"slots_per_trial": 1, "max_slots": 8},
     "environment": {
         "environment_variables": ["OMP_NUM_THREADS=1"],
     },
+    "checkpoint_storage": {"save_experiment_best": 0, "save_trial_best": 0, "save_trial_latest": 0},
     "searcher": {
         "name": "grid",
         "metric": "loss",
@@ -43,14 +43,14 @@ DEFAULT_CONFIG = {
         "use_mutransfer": None,
         "optimizer_name": None,
         "random_seed": 42,
-        "trainer": {"batch_size": 512, "metric_agg_rate": MAX_LENGTH // 10},
+        "trainer": {"batch_size": 1024, "metric_agg_rate_epochs": 1},
         "model": {
             "num_hidden_layers": None,
             "input_dim": 3 * 32 * 32,
             "output_dim": 10,
             "width_multiplier": None,
         },
-        "optimizer": {"lr": {"type": "log", "base": 10, "minval": -6, "maxval": -1, "count": 10}},
+        "optimizer": {"lr": {"type": "log", "base": 10, "minval": -0.5, "maxval": 0.5, "count": 3}},
     },
     "entrypoint": f"python3 -m determined.launch.torch_distributed python3 -m {NAME}.main",
 }
@@ -70,9 +70,12 @@ def parse_args():
     parser.add_argument("-ens", "--exp_name_suffix", type=str, nargs="+", default=[""])
     parser.add_argument("-ad", "--allow_duplicates", action="store_true")
     parser.add_argument("-nm", "--no_mutransfer", action="store_true")
-
+    parser.add_argument("-nr", "--num_repeats", type=int, default=1)
     parser.add_argument("-t", "--test", action="store_true")
+
     args = parser.parse_args()
+    if args.num_repeats > 1 and not args.allow_duplicates:
+        raise ValueError("If `num_repeats` is larger than one, `allow_duplicates` must be True.")
     return args
 
 
@@ -111,12 +114,14 @@ def exp_name_and_config_generator(args):
                 pass
 
     for (
+        _,
         optimizer_name,
         width_multiplier,
         slots_per_trial,
         num_hidden_layers,
         suffix,
     ) in itertools.product(
+        range(args.num_repeats),
         args.optimizer_name,
         args.width_multiplier,
         args.slots_per_trial,

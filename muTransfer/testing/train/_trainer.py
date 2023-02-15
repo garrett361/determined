@@ -22,8 +22,8 @@ class Trainer:
         optimizer: torch.optim.Optimizer,
         dataset: Dataset,
         criterion: Callable,
-        batch_size: int = 2 ** 7,
-        metric_agg_rate: int = 10,
+        batch_size: int = 1,
+        metric_agg_rate_epochs: int = 1,
         latest_checkpoint: Optional[str] = None,
     ) -> None:
         self.core_context = core_context
@@ -31,7 +31,7 @@ class Trainer:
         self.optimizer = optimizer
         self.dataset = dataset
         self.batch_size = batch_size
-        self.metric_agg_rate = metric_agg_rate
+        self.metric_agg_rate_epochs = metric_agg_rate_epochs
 
         self.rank = core_context.distributed.rank
         self.local_rank = core_context.distributed.local_rank
@@ -43,12 +43,12 @@ class Trainer:
         self.model.to(self.device)
 
         if latest_checkpoint is None:
-            self.trained_batches = 0
+            self.trained_epochs = 0
         else:
             with core_context.checkpoint.restore_path(latest_checkpoint) as path:
                 with open(path.joinpath("metadata.json"), "r") as f:
                     metadata_dict = json.load(f)
-                self.trained_batches = metadata_dict["trained_batches"]
+                self.trained_epochs = metadata_dict["trained_batches"]
                 model_state_dict = torch.load(
                     path.joinpath("model_state_dict.pth"), map_location=self.device
                 )
@@ -80,47 +80,50 @@ class Trainer:
         )
         return loader
 
-    def batch_generator(self) -> Generator[Tuple[int, torch.Tensor, torch.Tensor], None, None]:
-        while True:
-            for batch in self.dataloader:
-                inputs, labels = batch
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
-                yield inputs, labels
+    def one_epoch_of_data_generator(
+        self,
+    ) -> Generator[Tuple[int, torch.Tensor, torch.Tensor], None, None]:
+        for batch in self.dataloader:
+            inputs, labels = batch
+            inputs, labels = inputs.to(self.device), labels.to(self.device)
+            yield inputs, labels
+
+    def train_one_epoch(self) -> None:
+        for inputs, labels in self.one_epoch_of_data_generator():
+            self.optimizer.zero_grad()
+            outputs = self.model(inputs)
+            loss = self.get_loss_and_update_metrics(outputs, labels)
+            loss.backward()
+            self.optimizer.step()
 
     def train(self) -> None:
         self.model.train()
         for op in self.core_context.searcher.operations():
-            for inputs, labels in self.batch_generator():
-                self.optimizer.zero_grad()
-                outputs = self.model(inputs)
-                loss = self.get_loss_and_update_metrics(outputs, labels)
-                loss.backward()
-                self.optimizer.step()
-                self.trained_batches += 1
-                finishing_training = self.trained_batches == op.length
+            while self.trained_epochs < op.length:
+                self.train_one_epoch()
+                self.trained_epochs += 1
+                finishing_training = self.trained_epochs == op.length
                 should_preempt = self.core_context.preempt.should_preempt()
                 should_compute_metrics_and_checkpoint = (
-                    self.trained_batches % self.metric_agg_rate == 0
+                    self.trained_epochs % self.metric_agg_rate_epochs == 0
                     or finishing_training
                     or should_preempt
                 )
                 if should_compute_metrics_and_checkpoint:
-                    op.report_progress(self.trained_batches)
+                    op.report_progress(self.trained_epochs)
                     computed_metrics = self.compute_metrics()
                     if self.is_chief:
-                        self.core_context.train.report_training_metrics(
-                            steps_completed=self.trained_batches, metrics=computed_metrics
+                        # Need to report as validation metrics for easier metric retrieval via REST API.
+                        self.core_context.train.report_validation_metrics(
+                            steps_completed=self.trained_epochs, metrics=computed_metrics
                         )
                     self.reset_metrics()
                     self.checkpoint()
-                if should_preempt:
-                    return
                 if finishing_training:
                     if self.is_chief:
-                        self.core_context.train.report_validation_metrics(
-                            steps_completed=self.trained_batches, metrics=computed_metrics
-                        )
                         op.report_completed(computed_metrics["loss"])
+                    return
+                if should_preempt:
                     return
 
     def get_loss_and_update_metrics(self, outputs, labels):
@@ -138,8 +141,8 @@ class Trainer:
     def checkpoint(self):
         if self.is_chief:
             checkpoint_metadata = {
-                "trained_batches": self.trained_batches,
-                "steps_completed": self.trained_batches,
+                "trained_batches": self.trained_epochs,
+                "steps_completed": self.trained_epochs,
             }
             with self.core_context.checkpoint.store_path(checkpoint_metadata) as (
                 path,

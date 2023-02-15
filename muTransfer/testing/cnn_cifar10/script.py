@@ -22,16 +22,17 @@ def suppress_stdout():
             sys.stdout = old_stdout
 
 
-MAX_LENGTH = 100000
+MAX_LENGTH = 20
 NAME = "cnn_cifar10"
 
 DEFAULT_CONFIG = {
     "name": NAME,
-    "max_restarts": 5,
+    "max_restarts": 3,
     "resources": {"slots_per_trial": 1, "max_slots": 8},
     "environment": {
         "environment_variables": ["OMP_NUM_THREADS=1"],
     },
+    "checkpoint_storage": {"save_experiment_best": 0, "save_trial_best": 0, "save_trial_latest": 0},
     "searcher": {
         "name": "grid",
         "metric": "loss",
@@ -42,7 +43,7 @@ DEFAULT_CONFIG = {
         "use_mutransfer": None,
         "optimizer_name": None,
         "random_seed": 42,
-        "trainer": {"batch_size": 512, "metric_agg_rate": MAX_LENGTH // 10},
+        "trainer": {"batch_size": 512, "metric_agg_rate_epochs": 1},
         "model": {"num_hidden_layers": None, "input_dim": 16, "width_multiplier": None},
         "optimizer": {"lr": {"type": "log", "base": 10, "minval": -4, "maxval": 0, "count": 10}},
         "dataset": {"num_records": 10000, "input_dim": 16},
