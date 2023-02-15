@@ -67,7 +67,7 @@ def seed_everything(seed):
 
 
 def main(core_context, hparams: AttrDict, latest_checkpoint: Optional[str] = None) -> None:
-    seed_everything(seed=hparams.get("radom_seed", 42))
+    seed_everything(seed=hparams.random_seed)
     input_dim, num_hidden_layers = (
         hparams.model.input_dim,
         hparams.model.num_hidden_layers,

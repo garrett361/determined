@@ -55,7 +55,7 @@ DEFAULT_CONFIG = {
             "output_dim": 10,
             "width_multiplier": None,
         },
-        "optimizer": {"lr": {"type": "log", "base": 10, "minval": -0.5, "maxval": 0.5, "count": 3}},
+        "optimizer": {"lr": None},
     },
     "entrypoint": f"python3 -m determined.launch.torch_distributed python3 -m {NAME}.main",
 }
@@ -71,6 +71,7 @@ def parse_args():
     parser.add_argument("-w", "--workspace", type=str, default="muTransfer")
     parser.add_argument("-on", "--optimizer_name", type=str, nargs="+", default=["sgd"])
     parser.add_argument("-wm", "--width_multiplier", type=int, nargs="+", default=[1])
+    parser.add_argument("-lr", "--lr", type=float, nargs="+")
     parser.add_argument("-nhl", "--num_hidden_layers", type=int, nargs="+", default=[3])
     parser.add_argument("-ens", "--exp_name_suffix", type=str, nargs="+", default=[""])
     parser.add_argument("-ad", "--allow_duplicates", action="store_true")
@@ -122,6 +123,7 @@ def exp_name_and_config_generator(args):
         repeat_idx,
         optimizer_name,
         width_multiplier,
+        lr,
         slots_per_trial,
         num_hidden_layers,
         suffix,
@@ -129,6 +131,7 @@ def exp_name_and_config_generator(args):
         range(args.num_repeats),
         args.optimizer_name,
         args.width_multiplier,
+        args.lr,
         args.slots_per_trial,
         args.num_hidden_layers,
         args.exp_name_suffix,
@@ -137,7 +140,7 @@ def exp_name_and_config_generator(args):
         if args.project_name:
             project_name = args.project_name
         else:
-            project_name = DEFAULT_CONFIG["name"]
+            project_name = DEFAULT_CONFIG["name"] + "_single_run"
             if project_name not in existing_project_names:
                 existing_project_names.append(project_name)
                 workspace.create_project(project_name)
@@ -162,6 +165,7 @@ def exp_name_and_config_generator(args):
         config["hyperparameters"]["exp_name"] = exp_name  # Added for easy duplication checking.
         config["hyperparameters"]["random_seed"] += repeat_idx  # Don't use the same seed.
         config["hyperparameters"]["optimizer_name"] = optimizer_name
+        config["hyperparameters"]["optimizer"]["lr"] = lr
         config["hyperparameters"]["use_mutransfer"] = not args.no_mutransfer
         config["resources"]["slots_per_trial"] = slots_per_trial
         config["hyperparameters"]["model"]["width_multiplier"] = width_multiplier

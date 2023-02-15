@@ -2,10 +2,13 @@ import argparse
 import contextlib
 import copy
 import itertools
-import json
 import os
+import pathlib
 import sys
 
+BASE_PATH_STR = "/Users/garrett/github/garrett361/workspaces"
+BASE_PATH = pathlib.Path(BASE_PATH_STR)
+sys.path.append(BASE_PATH_STR)
 import pandas as pd
 import workspaces
 from determined.experimental import client
