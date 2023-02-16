@@ -202,8 +202,8 @@ class Workspace:
         results, unless refresh is True.
         """
         if project_names is None:
-            project_names = {wp["name"] for wp in self.get_all_projects()}
-        if isinstance(project_names, str):
+            project_names = set(self.get_all_project_names())
+        elif isinstance(project_names, str):
             project_names = {project_names}
         elif isinstance(project_names, Sequence):
             project_names = set(project_names)
@@ -211,7 +211,7 @@ class Workspace:
         if refresh:
             self._project_trials_dict = defaultdict(list)
 
-        required_project_names = project_names - set(self._project_trials_dict.keys())
+        required_project_names = project_names - set(self._project_trials_dict)
         for name in required_project_names:
             experiments = self.get_all_experiments(name)
             experiment_idxs = [exp["id"] for exp in experiments]
@@ -440,7 +440,6 @@ class Workspace:
                 trial_ids = (trial_id for _ in range(len(m["data"])))
                 df_list.append(pd.DataFrame({"step": step, name: values, "trial_id": trial_ids}))
         metrics_df = pd.concat(df_list)
-        metrics_df = metrics_df.set_index(["step", "trial_id"]).sort_index()
         return metrics_df
 
     async def _gather(
