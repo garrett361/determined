@@ -50,7 +50,7 @@ class Workspace:
         self.username = username
         self.password = password
         if master_url is None:
-            master_url = os.environ.get("DET_MASTER", "localhost:8080")
+            master_url = os.environ.get("DET_MASTER", "http://127.0.0.1:8080")
         self.master_url = master_url
 
         self.token = self._get_login_token()
