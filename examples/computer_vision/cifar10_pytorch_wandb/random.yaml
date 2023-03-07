@@ -1,0 +1,24 @@
+name: cifar10_pytorch_random_search
+resources:
+  slots_per_trial: 1
+hyperparameters:
+  learning_rate:
+    type: log
+    minval: -3.0
+    maxval: -2.0
+    base: 10.0
+  learning_rate_decay: 1.0e-6
+  layer1_dropout: 0.1
+  layer2_dropout: 0.1
+  layer3_dropout: 0.1
+  global_batch_size: 1024
+records_per_epoch: 50000
+searcher:
+  name: random
+  metric: validation_error
+  max_length:
+    epochs: 8
+  max_trials: 16
+entrypoint: model_def:CIFARTrial
+min_validation_period: # Only validate once.
+  epochs: 1000
