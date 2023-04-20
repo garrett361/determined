@@ -8,13 +8,15 @@ from determined.util import merge_dicts
 
 
 def parse_args() -> argparse.Namespace:
-    # TODO: Allow for additional includes args to be specified, as in the CLI.
+    # TODO: Bring into alignment with all of the det e create CLI options. How to easily reuse that
+    # code?
     parser = argparse.ArgumentParser(description="DS Autotuning")
     parser.add_argument("-m", "--master", type=str)
     parser.add_argument("-u", "--user", type=str, default="determined")
     parser.add_argument("-p", "--password", type=str, default="")
     parser.add_argument("-s", "--search-runner-config", type=str)
     parser.add_argument("-t", "--tuner-type", type=str, default="random")
+    parser.add_argument("-i", "--include", type=str, nargs="+")
 
     parser.add_argument("config_path")
     parser.add_argument("model_dir")
@@ -31,6 +33,7 @@ def run_autotuning(args: argparse.Namespace) -> None:
     experiment_config_dict = _utils.get_dict_from_yaml_or_json_path(args.config_path)
     config_path_absolute = os.path.abspath(args.config_path)
     model_dir_absolute = os.path.abspath(args.model_dir)
+    include_list_absolute = [os.path.abspath(p) for p in args.include] if args.include else []
 
     # Build the default SearchRunner's config from the submitted config. The original config yaml file
     # is added as an include and is reimported by the SearchRunner later.
@@ -40,6 +43,8 @@ def run_autotuning(args: argparse.Namespace) -> None:
     default_entrypoint += (
         f" -c {config_path_absolute} -md {model_dir_absolute} -t {args.tuner_type}"
     )
+    if include_list_absolute:
+        default_entrypoint += f" -i {' '.join(include_list_absolute)}"
 
     default_search_runner_overrides = _defaults.DEFAULT_SEARCH_RUNNER_OVERRIDES
     default_search_runner_overrides["entrypoint"] = default_entrypoint
@@ -66,6 +71,8 @@ def run_autotuning(args: argparse.Namespace) -> None:
     # preserve the top-level model_dir structure inside the SearchRunner's container.
     with tempfile.TemporaryDirectory() as temp_dir:
         includes = [model_dir_absolute, config_path_absolute]
+        if include_list_absolute:
+            includes.extend(include_list_absolute)
         client.create_experiment(
             config=search_runner_config_dict, model_dir=temp_dir, includes=includes
         )

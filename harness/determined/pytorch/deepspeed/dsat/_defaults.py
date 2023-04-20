@@ -64,9 +64,9 @@ AUTOTUNING_DICT = {
 DEFAULT_SEARCH_RUNNER_OVERRIDES = {
     "searcher": {"name": "single", "max_length": 0},
     # TODO: don't hardcode the searcher's max_restarts.
-    "max_restarts": 3,
+    "max_restarts": 5,
     # TODO: taking slots_per_trial: 0 to imply cpu-only here, but that's apparently an unsafe assumption
-    # e.g. on Grenoble.
+    # e.g. on Grenoble (fixed as of April 18, but still might might break later?).
     "resources": {"slots_per_trial": 0},
     # TODO: remove the environment section; just needed for GG's GCP cluster.
     "environment": {

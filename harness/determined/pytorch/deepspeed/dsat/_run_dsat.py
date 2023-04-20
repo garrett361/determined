@@ -13,10 +13,13 @@ def get_parsed_args() -> argparse.Namespace:
     parser.add_argument("-c", "--config_path", type=str)
     parser.add_argument("-md", "--model_dir", type=str)
     parser.add_argument("-t", "--tuner-type", type=str, default="random")
+    parser.add_argument("-i", "--include", type=str, nargs="+")
     args = parser.parse_args()
     # Strip and only use the base names.
     args.config_path = os.path.basename(args.config_path)
     args.model_dir = os.path.basename(args.model_dir)
+    if args.include:
+        args.include = [os.path.basename(p) for p in args.include]
     return args
 
 
@@ -35,7 +38,11 @@ def main(core_context: det.core.Context) -> None:
     )
     search_runner = searcher.RemoteSearchRunner(search_method, context=core_context)
 
-    search_runner.run(submitted_config_dict, model_dir=args.model_dir)
+    search_runner.run(
+        submitted_config_dict,
+        model_dir=args.model_dir,
+        includes=args.include if args.include else None,
+    )
 
 
 if __name__ == "__main__":

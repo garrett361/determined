@@ -1,4 +1,4 @@
-name: vision transformer deepspeed stage 1
+name: language-modeling-clm-trainer-ds-1 
 debug: false
 environment:
     environment_variables:
@@ -19,22 +19,16 @@ hyperparameters:
     learning_rate: 1e-5
 entrypoint: >-
   python -m determined.launch.deepspeed
-  python image_classification.py 
-  --dataset_name beans  
-  --output_dir ./beans_outputs/  
-  --remove_unused_columns False 
-  --do_train  
-  --do_eval 
-  --max_steps 100
+  python run_clm.py 
+  --model_name_or_path gpt2 
+  --dataset_name wikitext 
+  --dataset_config_name wikitext-2-raw-v1 
+  --do_train 
+  --do_eval
+  --output_dir /tmp/test-clm
+  --deepspeed ds_configs/ds_config_stage_1.json
   --per_device_train_batch_size 8 
   --per_device_eval_batch_size 8
-  --logging_strategy steps 
-  --logging_steps 10 
-  --evaluation_strategy steps
-  --eval_steps 10
-  --save_total_limit 3 
-  --seed 1337
-  --save_strategy steps
-  --save_steps 20
-  --deepspeed ds_configs/ds_config_stage_1.json
+  --cache_dir ./garrettgoon/cache_dir
+# TODO: Delete the cache_dir field; just using them for fast testing.
 max_restarts: 0

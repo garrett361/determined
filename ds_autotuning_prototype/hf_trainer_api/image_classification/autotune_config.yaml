@@ -36,4 +36,6 @@ entrypoint: >-
   --save_strategy steps
   --save_steps 20
   --deepspeed ds_configs/ds_config_stage_1.json
+  --cache_dir ./garrettgoon/cache_dir
+# TODO: Delete the cache_dir field; just using them for fast testing.
 max_restarts: 0

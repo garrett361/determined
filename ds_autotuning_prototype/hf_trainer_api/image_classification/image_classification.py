@@ -19,7 +19,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import datasets
 import determined as det
@@ -27,8 +27,13 @@ import numpy as np
 import torch
 import transformers
 from datasets import load_dataset
-from det_callback import DetCallback
-from determined.pytorch.deepspeed import dsat, overwrite_deepspeed_config
+from det_callback import (
+    DetCallback,
+    create_consistent_hf_args_for_deepspeed,
+    get_ds_config_path_from_args,
+    replace_ds_config_file_using_overwrites,
+)
+from determined.pytorch.deepspeed import dsat
 from PIL import Image
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms import (
@@ -197,50 +202,9 @@ def dict2args(hparams):
     return out
 
 
-def create_consistent_ds_config(args, hparams):
-    """
-    Helper function which modifies the *HFConfig* batch-size-related args based on the deepspeed
-    json file, if present.
-
-    The default HF behavior is to use "auto" for these values in the json file when combining
-    deepspeed and HF Trainer, and then HF will populate the ds config values based on other
-    HF args. This helper function exactly reverses the logic and modifies the HF args based on the
-    ds json config values, if they are not "auto".
-    """
-    ds_config_idx = None
-    ds_config_dict_with_overwrites = {}
-    for idx in range(len(args)):
-        if args[idx] == "--deepspeed":
-            ds_config_idx = idx + 1
-            ds_config_path = args[ds_config_idx]
-            with open(ds_config_path, "r") as f:
-                ds_config_dict_with_overwrites = json.load(f)
-            break
-    print("HPARAMS", hparams)
-    if ds_config_idx is not None and dsat._defaults.OVERWRITE_KEY in hparams:
-        # If overwrites are provided, use them and them. The deepspeed configuration should have a
-        # consistent batch size configuration at this point.
-        ds_config_dict_with_overwrites = overwrite_deepspeed_config(
-            ds_config_dict_with_overwrites, hparams.get(dsat._defaults.OVERWRITE_KEY, {})
-        )
-        print("DSCONFIG WITH OVERWRITES", ds_config_dict_with_overwrites)
-        # overwrite the original config
-        with open(ds_config_path, "w") as f:
-            json.dump(ds_config_dict_with_overwrites, f)
-        # Next we need to ensure that the HF batch config aligns with the deepspeed one.
-        for idx in range(len(args)):
-            if args[idx] == "--per_device_train_batch_size":
-                args[idx + 1] = str(
-                    ds_config_dict_with_overwrites["train_micro_batch_size_per_gpu"]
-                )
-            elif args[idx] == "--gradient_accumulation_steps":
-                args[idx + 1] = str(ds_config_dict_with_overwrites["gradient_accumulation_steps"])
-
-    print("CONSISTENT ARGS: ", args)
-    return args
-
-
-def parse_input_arguments(hparams):
+def parse_input_arguments(
+    hparams: Dict[str, Any]
+) -> Tuple[ModelArguments, DataTrainingArguments, TrainingArguments]:
     training_arguments = hparams.get("training_arguments", {})
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
@@ -256,11 +220,14 @@ def parse_input_arguments(hparams):
         model_args, data_args, training_args = parser.parse_dict(args)
     # 2. If your arguments are in a sys.argv:
     else:
-        print(f"Using sys arg {sys.argv[1:]}")
         args = sys.argv[1:]
         args.extend(dict2args(training_arguments))
-        args = create_consistent_ds_config(args, hparams)
+        ds_config_path = get_ds_config_path_from_args(args)
+        if ds_config_path is not None:
+            replace_ds_config_file_using_overwrites(args, hparams)
+            args = create_consistent_hf_args_for_deepspeed(args, ds_config_path)
         model_args, data_args, training_args = parser.parse_args_into_dataclasses(args)
+        print("MODEL ARGS", model_args)
 
     return model_args, data_args, training_args
 
@@ -462,8 +429,9 @@ def main(det_callback, tb_callback, model_args, data_args, training_args):
         elif last_checkpoint is not None:
             checkpoint = last_checkpoint
 
+        # TODO: use the actual steps_completed and not this placeholder.
         with dsat.dsat_reporting_context(
-            core_context, op=det_callback.current_op, steps_completed=-2
+            core_context, op=det_callback.current_op, steps_completed=-1
         ):
             train_result = trainer.train(resume_from_checkpoint=checkpoint)
         trainer.save_model()
@@ -492,13 +460,12 @@ def main(det_callback, tb_callback, model_args, data_args, training_args):
 
 
 if __name__ == "__main__":
-
     info = det.get_cluster_info()
     assert info
     hparams = info.trial.hparams
     model_args, data_args, training_args = parse_input_arguments(hparams)
     # Turn the deepspeed training arguments, if any, into a dict and overwrite any args generated
-    # by the searcher.
+    # by the searcher
 
     if training_args.deepspeed:
         distributed = det.core.DistributedContext.from_deepspeed()
@@ -506,7 +473,6 @@ if __name__ == "__main__":
         distributed = det.core.DistributedContext.from_torch_distributed()
 
     with det.core.init(distributed=distributed) as core_context:
-
         # Optional user-defined data that is saved in the Determined checkpoint.
         user_data = {
             "finetuned_from": model_args.model_name_or_path,

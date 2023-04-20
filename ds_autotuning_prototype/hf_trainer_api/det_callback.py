@@ -1,9 +1,11 @@
 import json
 import logging
 import os
-import typing
+from typing import Any, Dict, List, Optional, Tuple
 
 import determined as det
+import transformers
+from determined.pytorch.deepspeed import dsat, overwrite_deepspeed_config
 from transformers import TrainerCallback, TrainerControl, TrainerState, TrainingArguments
 from transformers.trainer_utils import get_last_checkpoint
 
@@ -15,8 +17,8 @@ class DetCallback(TrainerCallback):
         self,
         core_context: det.core.Context,
         args: TrainingArguments,
-        filter_metrics: typing.List[str] = None,
-        user_data: typing.Dict = None,
+        filter_metrics: List[str] = None,
+        user_data: Dict = None,
     ) -> None:
         super().__init__()
 
@@ -26,7 +28,7 @@ class DetCallback(TrainerCallback):
         self.user_data = user_data
         self.load_last_checkpoint(args)
 
-        self.last_metrics: typing.Dict[str, float] = {"train_step": -1, "eval_step": -1}
+        self.last_metrics: Dict[str, float] = {"train_step": -1, "eval_step": -1}
 
         searcher_config = det.get_cluster_info().trial._config["searcher"]
         self.searcher_metric = searcher_config["metric"]
@@ -87,7 +89,7 @@ class DetCallback(TrainerCallback):
         if self.updating_searcher is False and self.core_context.preempt.should_preempt():
             control.should_save = True
 
-    def _get_metrics(self, logs: typing.Dict) -> typing.Tuple[typing.Dict, str]:
+    def _get_metrics(self, logs: Dict) -> Tuple[Dict, str]:
         metrics = logs
         metric_type = get_metric_type(logs)
         if self.filter_metrics:
@@ -143,7 +145,6 @@ class DetCallback(TrainerCallback):
 
         latest_checkpoint = info.latest_checkpoint
         if latest_checkpoint is not None:
-
             if args.overwrite_output_dir is True:
                 logging.info(
                     f"Skip downloading last checkpoint from Determined due "
@@ -291,3 +292,76 @@ def get_metric_type(d):
             return TRAIN_AVG
         else:
             return TRAIN
+
+
+def get_ds_config_path_from_args(args: List[str]) -> Optional[str]:
+    for idx in range(len(args)):
+        if args[idx] == "--deepspeed":
+            ds_config_idx = idx + 1
+            ds_config_path = args[ds_config_idx]
+            return ds_config_path
+
+
+def replace_ds_config_file_using_overwrites(
+    args: List[str], hparams: Dict[str, Any], overwrite_key: str = dsat._defaults.OVERWRITE_KEY
+):
+    """
+    Gets the deepspeed json config path from the list of HF args, overwrites its values using
+    the provided overwrite values, and the re-writes the result to the original config path.
+    """
+    ds_config_path = get_ds_config_path_from_args(args)
+    with open(ds_config_path, "r") as f:
+        ds_config_dict_with_overwrites = json.load(f)
+        # If overwrites are provided, use them. The deepspeed configuration is assumed to have a
+        # consistent batch size configuration at this point, with all of train_batch_size,
+        # train_micro_batch_size_per_gpu, and gradient_accumulation_steps filled in.
+        ds_config_dict_with_overwrites = overwrite_deepspeed_config(
+            ds_config_dict_with_overwrites, hparams.get(overwrite_key, {})
+        )
+        print("writing ds config to file", ds_config_dict_with_overwrites)
+        # overwrite the original config
+        with open(ds_config_path, "w") as f:
+            json.dump(ds_config_dict_with_overwrites, f)
+
+
+def create_consistent_hf_args_for_deepspeed(args: List[str], ds_config_path: str) -> List[str]:
+    """
+    TODO: Cleanup and write actual doc string. Remove print tests.
+
+    Helper function which modifies the *HFConfig* batch-size-related args based on the deepspeed
+    json file, if present.
+
+    The default HF behavior is to use "auto" for these values in the json file when combining
+    deepspeed and HF Trainer, and then HF will populate the ds config values based on other
+    HF args. This helper function exactly reverses the logic and modifies the HF args based on the
+    ds json config values, if they are not "auto".
+    """
+    # Next we need to ensure that the HF batch config aligns with the deepspeed one.
+    print("args before", args)
+    with open(ds_config_path, "r") as f:
+        ds_config_dict = json.load(f)
+
+    hf_flag_to_ds_key_dict = {
+        "--per_device_train_batch_size": "train_micro_batch_size_per_gpu",
+        "--gradient_accumulation_steps": "gradient_accumulation_steps",
+    }
+    seen_hf_flags = set()
+
+    for idx in range(len(args)):
+        for hf_flag, ds_key in hf_flag_to_ds_key_dict.items():
+            if args[idx] == hf_flag:
+                overwrite_value = str(ds_config_dict[ds_key])
+                if args[idx + 1] != overwrite_value:
+                    logging.warning(
+                        f"Changing {hf_flag} from {args[idx +1]} to {overwrite_value} to match the DeepSpeed configuration."
+                    )
+                    args[idx + 1] = overwrite_value
+                seen_hf_flags.add(hf_flag)
+
+    # Add any unseen flags in, so that we don't just fall back to HF defaults.
+    for hf_flag, ds_key in hf_flag_to_ds_key_dict.items():
+        if hf_flag not in seen_hf_flags:
+            args.extend([hf_flag, str(ds_config_dict[ds_key])])
+    print("args after", args)
+
+    return args
