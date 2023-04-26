@@ -351,7 +351,7 @@ def create_consistent_hf_args_for_deepspeed(args: List[str], ds_config_path: str
         for hf_flag, ds_key in hf_flag_to_ds_key_dict.items():
             if args[idx] == hf_flag:
                 overwrite_value = str(ds_config_dict[ds_key])
-                if args[idx + 1] != overwrite_value:
+                if overwrite_value != "auto" and args[idx + 1] != overwrite_value:
                     logging.warning(
                         f"Changing {hf_flag} from {args[idx +1]} to {overwrite_value} to match the DeepSpeed configuration."
                     )
