@@ -545,9 +545,7 @@ if __name__ == "__main__":
             "tags": ["language-modeling", "nlp"],
         }
 
-        det_callback = DetCallback(
-            core_context, training_args, filter_metrics=["loss", "accuracy"], user_data=user_data
-        )
+        det_callback = DetCallback(core_context, training_args, user_data=user_data)
 
         tb_callback = TensorBoardCallback(
             tb_writer=SummaryWriter(core_context.train.get_tensorboard_path())
