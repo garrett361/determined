@@ -100,7 +100,9 @@ def report_json_results(
         core_context.train.report_validation_metrics(
             steps_completed=steps_completed, metrics=results_dict
         )
+        logging.info(f"About to report completed {results_dict}")
         op.report_completed(results_dict)
+        logging.info(f"Reported complete {results_dict}")
     # Ensure the operations generator is empty to complete sanity checks.
     try:
         next(core_context.searcher.operations())

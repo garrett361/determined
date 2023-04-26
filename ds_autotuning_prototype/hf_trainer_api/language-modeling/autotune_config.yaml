@@ -1,12 +1,12 @@
 name: language-modeling-clm-trainer-ds-1
 debug: false
 environment:
-    environment_variables:
-        - NCCL_DEBUG=INFO
-        # You may need to modify this to match your network configuration.
-        - NCCL_SOCKET_IFNAME=ens,eth,ib
-    image:
-      gpu: determinedai/environments:cuda-11.3-pytorch-1.10-tf-2.8-deepspeed-0.7.0-gpu-9119094
+  environment_variables:
+    - NCCL_DEBUG=INFO
+    # You may need to modify this to match your network configuration.
+    - NCCL_SOCKET_IFNAME=ens,eth,ib
+  image:
+    gpu: determinedai/environments:cuda-11.3-pytorch-1.10-tf-2.8-deepspeed-0.7.0-gpu-9119094
 resources:
   slots_per_trial: 2
 searcher:
@@ -27,7 +27,7 @@ entrypoint: >-
   --output_dir /tmp/test-clm
   --deepspeed ds_configs/ds_config_stage_1.json
   --cache_dir ./garrettgoon/cache_dir
-# --per_device_train_batch_size 8 
+# --per_device_train_batch_size 8
 # --per_device_eval_batch_size 8
 # TODO: Delete the cache_dir field; just using them for fast testing.
 max_restarts: 0
