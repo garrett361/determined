@@ -485,7 +485,7 @@ def main(det_callback, tb_callback, model_args, data_args, training_args):
 
         # TODO: Replace -1 step
         with dsat.dsat_reporting_context(
-            core_context, op=det_callback.current_op, steps_completed=-1
+            core_context, op=det_callback.current_op, steps_completed=det_callback.current_op.length
         ):
             train_result = trainer.train(resume_from_checkpoint=checkpoint)
         trainer.save_model()  # Saves the tokenizer too for easy upload
