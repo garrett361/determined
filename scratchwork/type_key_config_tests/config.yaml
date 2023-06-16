@@ -1,0 +1,13 @@
+name: test
+hyperparameters:
+  ds_config:
+    optimizer:
+      type: const
+      val:
+        weight_decay: 1.0e-6
+        type: Adam
+searcher:
+  name: single
+  metric: arbitrary
+  max_length: 1
+entrypoint: python3 print_hps.py

@@ -1,0 +1,13 @@
+name: node_and_slot_test
+max_restarts: 0
+hyperparameters:
+  irrelevant:
+    type: double
+    minval: 0
+    maxval: 1
+searcher:
+  name: random
+  metric: container_addrs_suffix
+  max_length: 1
+  max_trials: 32
+entrypoint: python -m determined.launch.torch_distributed -- python3 main.py

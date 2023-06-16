@@ -1,0 +1,11 @@
+name: gpt-neox-trial
+max_restarts: 0
+hyperparameters:
+  irrelevant:
+    type: double
+    minval: 0
+    maxval: 1
+searcher:
+  name: single
+  metric: arbitrary
+entrypoint: python -m determined.launch.torch_distributed -- python3 main.py

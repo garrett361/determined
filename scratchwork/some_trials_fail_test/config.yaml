@@ -1,0 +1,12 @@
+name: some_trials_fail_test
+max_restarts: 0
+resources:
+  slots_per_trial: 0
+hyperparameters:
+  fail:
+    - 0
+    - 1
+searcher:
+  name: grid
+  max_length: 1
+entrypoint: python3 main.py

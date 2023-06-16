@@ -1,0 +1,15 @@
+name: env_var_test
+max_restarts: 0
+searcher:
+  name: single
+  metric: irrelevant
+  max_length: 1
+environment:
+  environment_variables:
+    - NCCL_SOCKET_IFNAME=ens,eth,ib,
+    - NCCL_DEBUG=INFO
+    - TRANSFORMERS_CACHE=./shared_fs/.cache/huggingface
+    - HF_DATASETS_CACHE=./shared_fs/.cache/huggingface,
+    - HF_HOME=./shared_fs/.cache/huggingface
+    - HF_MODULES_CACHE=./shared_fs/.cache/huggingface
+entrypoint: python -m determined.launch.torch_distributed -- python3 main.py

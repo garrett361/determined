@@ -1,0 +1,66 @@
+name: gpt-neox-zero-hp-search
+debug: false
+hyperparameters:
+  search_world_size: true
+  deepspeed: true
+  conf_dir: /gpt-neox/configs
+  conf_file:
+      - 2-7B.yml
+      - determined_cluster.yml
+  overwrite_values:
+    fp16:
+      fp16: true
+      enabled: true
+      loss_scale: 2
+    log_interval: 10
+    pipe_parallel_size:
+      type:  categorical
+      vals:
+        - 1
+        - 2
+        - 4
+    model_parallel_size:
+      type:  categorical
+      vals:
+        - 1
+        - 2
+        - 4
+    train_micro_batch_size_per_gpu:
+      type:  categorical
+      vals:
+        - 2
+        - 4
+        - 8
+    train_batch_size: 512
+  wandb_group: null
+  wandb_team: null
+  user_script: null
+  eval_tasks: null
+environment:
+    environment_variables:
+        - NCCL_DEBUG=INFO
+        # You may need to modify this to match your network configuration.
+        - NCCL_SOCKET_IFNAME=ens,eth,ib
+    force_pull_image: true
+    image:
+      gpu: determinedai/gpt-neox:4850e79
+resources:
+  slots_per_trial: 16
+searcher:
+  name: grid
+  metric: tflops
+  smaller_is_better: false
+  max_length:
+    batches: 100
+  max_concurrent_trials: 4
+min_validation_period:
+    batches: 10
+# Disabling checkpointing so that interval time is correct.
+checkpoint_policy: none
+max_restarts: 2
+entrypoint:
+  - python3
+  - -m
+  - determined.launch.deepspeed
+  - --trial
+  - gpt2_trial:GPT2Trial

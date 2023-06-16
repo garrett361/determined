@@ -1,0 +1,19 @@
+name: visualize_no_val_metrics_random
+max_restarts: 0
+resources:
+  slots_per_trial: 0
+hyperparameters:
+  irrelevant:
+    type: double
+    minval: 0
+    maxval: 1
+  also_irrelevant:
+    type: double
+    minval: 0
+    maxval: 1
+searcher:
+  name: random
+  max_length: 1
+  max_trials: 8
+  metric: val_loss
+entrypoint: python3 main.py
