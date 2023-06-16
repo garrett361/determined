@@ -6,4 +6,4 @@ searcher:
   max_length: 1
 resources:
   slots_per_trial: 1
-entrypoint: python -m determined.launch.torch_distributed main.py
+entrypoint: python -m determined.launch.torch_distributed -- python main.py
