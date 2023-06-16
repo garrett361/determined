@@ -1,11 +1,14 @@
 import logging
 
+import torch
+
 import determined as det
 
 
 def main(core_context) -> None:
-    info = det.get_cluster_info()
-    print(info)
+    gpu_mem = int(torch.cuda.get_device_properties(0).total_memory)
+    core_context.train.report_training_metrics(steps_completed=1, metrics={"gpu_mem": gpu_mem})
+    core_context.train.report_validation_metrics(steps_completed=1, metrics={"gpu_mem": gpu_mem})
 
 
 if __name__ == "__main__":
