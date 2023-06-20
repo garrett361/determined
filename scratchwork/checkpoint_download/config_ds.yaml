@@ -1,0 +1,17 @@
+name: download_checkpoint
+max_restarts: 0
+searcher:
+  name: single
+  metric: irrelevant
+  max_length: 1
+environment:
+  environment_variables:
+    - NCCL_DEBUG=INFO
+    # You may need to modify this to match your network configuration.
+    - NCCL_SOCKET_IFNAME=ens,eth,ib
+  image:
+    gpu: determinedai/environments:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.21.2
+    cpu: determinedai/environments:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.21.2
+resources:
+  slots_per_trial: 1
+entrypoint: python -m determined.launch.deepspeed python main_ds.py
