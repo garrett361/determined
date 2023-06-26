@@ -1,0 +1,55 @@
+name: llama-7b cong baseline single autotuning metrics test
+workspace: DS_AT_PROTOTYPING
+project: hf
+debug: false
+environment:
+  environment_variables:
+    - NCCL_DEBUG=INFO
+    # You may need to modify this to match your network configuration.
+    - NCCL_SOCKET_IFNAME=ens,eth,ib
+  image:
+    gpu: determinedai/environments-dev:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.21.2
+    cpu: determinedai/environments-dev:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.21.2
+resources:
+  slots_per_trial: 4
+searcher:
+  name: single
+  max_length:
+    batches: 200
+  metric: eval_loss
+hyperparameters:
+  deepspeed_config: cong_baseline_config_test_7b.json
+  training_arguments:
+    learning_rate: 1e-5
+  overwrite_deepspeed_args:
+    autotuning:
+      enabled: true
+      start_profile_step: 3
+      end_profile_step: 5
+entrypoint: >-
+  python -m determined.launch.deepspeed
+  python run_clm_cong_max_length_edit.py
+  --deepspeed cong_baseline_config_test_7b.json
+  --model_name_or_path huggyllama/llama-7b
+  --dataset_name wikitext
+  --dataset_config_name wikitext-2-raw-v1
+  --torch_dtype float16
+  --fp16 True
+  --tf32 True
+  --do_train
+  --output_dir /tmp/test-clm
+  --overwrite_output_dir True
+  --per_device_train_batch_size 1
+  --per_device_eval_batch_size 2
+  --gradient_checkpointing True
+  --evaluation_strategy no
+  --save_strategy steps
+  --save_steps 2000
+  --max_steps 200
+  --learning_rate 2e-5
+  --logging_steps 1
+  --block_size 512
+  --disable_tqdm True
+  --cache_dir ./garrettgoon/cache_dir
+# TODO: Delete the cache_dir field; just using them for fast testing.
+max_restarts: 0

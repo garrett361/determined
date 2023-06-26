@@ -1,0 +1,11 @@
+accelerate
+datasets
+deepspeed
+determined
+einops
+evaluate
+#flash-attn==1.0.3.post0
+setuptools==59.5.0
+scikit-learn
+transformers==4.28.1
+#triton==2.0.0.dev20221202

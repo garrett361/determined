@@ -1,0 +1,47 @@
+name: mpt-7b finetune
+workspace: DS_AT_PROTOTYPING
+project: hf
+debug: false
+environment:
+  environment_variables:
+    - NCCL_DEBUG=INFO
+    - NCCL_SOCKET_IFNAME=ens,eth,ib
+    - HF_DATASETS_CACHE=./garrettgoon/cache_dir
+    - TRANSFORMERS_CACHE=./garrettgoon/cache_dir
+    - HF_MODULES_CACHE=./garrettgoon/.cache/huggingface
+  image:
+    gpu: determinedai/environments:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.21.2
+    cpu: determinedai/environments:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.21.2
+bind_mounts:
+  - container_path: /etc/hosts
+    host_path: /etc/hosts
+    propagation: rprivate
+    read_only: false
+  - container_path: /cstor
+    host_path: /cstor
+    propagation: rprivate
+    read_only: false
+resources:
+  slots_per_trial: 8
+searcher:
+  name: single
+  max_length:
+    batches: 100
+  metric: eval_loss
+hyperparameters:
+  training_arguments:
+    learning_rate: 1e-5
+  deepspeed_config: ds_configs/zero_stage_1.json
+entrypoint: >-
+  python -m determined.launch.deepspeed python hfllm/train_causal_llm.py
+  --cache_dir ./garrettgoon/cache_dir --dataset_name csv --data_files
+  "/cstor/coreystaten/data/hackathon/data/*/*_all_narratives.csv"
+  --model_name_or_path mosaicml/mpt-7b --torch_dtype=float16 --tokenizer_name
+  EleutherAI/gpt-neox-20b --block_size 2048 --output_dir ./hackathon_outputs/
+  --remove_unused_columns False  --do_train   --do_eval  --max_steps 100
+  --per_device_train_batch_size 1 --per_device_eval_batch_size 3
+  --logging_strategy steps  --logging_steps 10  --evaluation_strategy steps
+  --eval_steps 10 --save_total_limit 3  --seed 133 --save_strategy steps
+  --save_steps 20 --trust_remote_code --validation_split_percentage 10
+  --deepspeed ds_configs/zero_stage_1.json
+max_restarts: 0

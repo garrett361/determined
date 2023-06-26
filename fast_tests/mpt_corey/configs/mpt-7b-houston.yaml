@@ -1,0 +1,62 @@
+name: mpt-7b finetune
+debug: false
+workspace: Corey
+project: LLM
+bind_mounts:
+  - host_path: /nvmefs1/corey.staten
+    container_path: /run/determined/workdir/shared_fs
+environment:
+    environment_variables:
+        - NCCL_DEBUG=INFO
+        # You may need to modify this to match your network configuration.
+        - NCCL_SOCKET_IFNAME=ens,eth,ib
+        - HF_DATASETS_CACHE=/run/determined/workdir/shared_fs/corey/hf
+        - TRANSFORMERS_CACHE=/run/determined/workdir/shared_fs/corey/hf
+    image:
+      # cuda: determinedai/environments:cuda-11.3-pytorch-1.12-gpu-0.22.1
+      cuda: determinedai/environments:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.22.1
+resources:
+  slots_per_trial: 8
+  resource_pool: A100
+searcher:
+  name: single
+  max_length:
+    batches: 100
+  metric: eval_loss
+hyperparameters:
+  training_arguments:
+    learning_rate: 1e-5
+entrypoint: >-
+  python -m determined.launch.deepspeed
+  python hfllm/train_causal_llm.py 
+  --cache_dir /run/determined/workdir/shared_fs/corey/hf
+  --dataset_name wikitext
+  --dataset_config_name wikitext-2-v1
+  --model_name_or_path mosaicml/mpt-7b
+  --torch_dtype=bfloat16
+  --tokenizer_name EleutherAI/gpt-neox-20b
+  --bf16
+  --output_dir ./wikitext_outputs/  
+  --remove_unused_columns False 
+  --do_train  
+  --do_eval 
+  --max_steps 100
+  --per_device_train_batch_size 1
+  --per_device_eval_batch_size 1
+  --logging_strategy steps 
+  --logging_steps 10 
+  --evaluation_strategy steps
+  --eval_steps 10
+  --save_total_limit 3 
+  --seed 133
+  --save_strategy steps
+  --save_steps 20
+  --streaming
+  --trust_remote_code
+  --deepspeed ds_configs/zero_stage_3_offload.json
+max_restarts: 0
+  # --attn_impl triton
+  # --model_name_or_path mosaicml/mpt-7b
+  # --torch_dtype=bfloat16
+  # --tokenizer_name EleutherAI/gpt-neox-20b
+  # --bf16
