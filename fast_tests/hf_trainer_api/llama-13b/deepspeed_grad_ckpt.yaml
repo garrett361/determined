@@ -1,4 +1,4 @@
-name: huggyllama/llama-13b
+name: huggyllama/llama-13b gradient_checkpointing
 workspace: DS_AT_PROTOTYPING
 project: hf
 debug: false
@@ -44,5 +44,6 @@ entrypoint: >-
   --per_device_eval_batch_size 1
   --cache_dir ./garrettgoon/cache_dir
   --trust_remote_code false
+  --gradient_checkpointing True
 # TODO: Delete the cache_dir field; just using them for fast testing.
 max_restarts: 0
