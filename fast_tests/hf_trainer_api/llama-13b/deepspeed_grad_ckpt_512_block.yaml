@@ -1,4 +1,4 @@
-name: huggyllama/llama-13b gradient_checkpointing
+name: huggyllama/llama-13b gradient_checkpointing 512
 workspace: DS_AT_PROTOTYPING
 project: hf
 debug: false

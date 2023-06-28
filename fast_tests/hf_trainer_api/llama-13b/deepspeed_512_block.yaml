@@ -1,4 +1,4 @@
-name: huggyllama/llama-13b
+name: huggyllama/llama-13b 512
 workspace: DS_AT_PROTOTYPING
 project: hf
 debug: false
