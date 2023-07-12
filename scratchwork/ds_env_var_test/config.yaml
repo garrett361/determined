@@ -11,6 +11,7 @@ environment:
     - NCCL_DEBUG=INFO
     # You may need to modify this to match your network configuration.
     - NCCL_SOCKET_IFNAME=ens,eth,ib
+    - MY_CUSTOM_ENV_VAR=value
   image:
     gpu: determinedai/environments:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.22.1
 entrypoint: python -m determined.launch.deepspeed python main.py
