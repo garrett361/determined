@@ -1,4 +1,4 @@
-name: download_checkpoint_hf_datasets (DS)
+name: download_checkpoint_restore_path_hf_datasets (DS)
 max_restarts: 0
 searcher:
   name: single
