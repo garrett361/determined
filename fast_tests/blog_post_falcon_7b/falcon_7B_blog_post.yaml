@@ -8,8 +8,8 @@ environment:
     # You may need to modify this to match your network configuration.
     - NCCL_SOCKET_IFNAME=ens,eth,ib
   image:
-    gpu: determinedai/environments-dev:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.21.2
-    cpu: determinedai/environments-dev:cuda-11.3-pytorch-1.10-deepspeed-0.8.3-gpu-0.21.2
+    gpu: determinedai/environments-dev:python-3.10-pytorch-2.0-deepspeed-0.8.3-smartsim
+    cpu: determinedai/environments-dev:python-3.10-pytorch-2.0-deepspeed-0.8.3-smartsim
 resources:
   slots_per_trial: 8
 searcher:
@@ -46,6 +46,6 @@ entrypoint: >-
   --block_size 512
   --disable_tqdm True
   --cache_dir ./garrettgoon/cache_dir
-  --per_device_train_batch_size 8
+  --per_device_train_batch_size 14
 # TODO: Delete the cache_dir field; just using them for fast testing.
 max_restarts: 0

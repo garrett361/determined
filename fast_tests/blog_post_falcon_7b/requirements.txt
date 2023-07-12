@@ -11,3 +11,4 @@ rouge_score
 fire
 sentencepiece
 scikit-learn
+einops

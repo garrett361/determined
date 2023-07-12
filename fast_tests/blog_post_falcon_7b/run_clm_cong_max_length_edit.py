@@ -436,9 +436,13 @@ def main(det_callback, tb_callback, model_args, data_args, training_args):
         "use_auth_token": True if model_args.use_auth_token else None,
     }
     if model_args.config_name:
-        config = AutoConfig.from_pretrained(model_args.config_name, **config_kwargs)
+        config = AutoConfig.from_pretrained(
+            model_args.config_name, trust_remote_code=True, **config_kwargs
+        )
     elif model_args.model_name_or_path:
-        config = AutoConfig.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+        config = AutoConfig.from_pretrained(
+            model_args.model_name_or_path, trust_remote_code=True, **config_kwargs
+        )
     else:
         config = CONFIG_MAPPING[model_args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
@@ -455,9 +459,13 @@ def main(det_callback, tb_callback, model_args, data_args, training_args):
         "use_auth_token": True if model_args.use_auth_token else None,
     }
     if model_args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.tokenizer_name, trust_remote_code=True, **tokenizer_kwargs
+        )
     elif model_args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, **tokenizer_kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.model_name_or_path, trust_remote_code=True, **tokenizer_kwargs
+        )
     else:
         raise ValueError(
             "You are instantiating a new tokenizer from scratch. This is not supported by this script."
@@ -478,6 +486,7 @@ def main(det_callback, tb_callback, model_args, data_args, training_args):
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
             torch_dtype=torch_dtype,
+            trust_remote_code=True,
             low_cpu_mem_usage=model_args.low_cpu_mem_usage,
         )
     else:

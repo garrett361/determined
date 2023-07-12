@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-det e create llama_13B_blog_post.yaml .
+det e create falcon_7B_blog_post.yaml .
