@@ -1,0 +1,11 @@
+name: report metrics step zero test
+max_restarts: 0
+resources:
+  slots_per_trial: 0
+hyperparameters:
+  irrelevant: 0
+searcher:
+  name: single
+  metric: some_val_metric
+  max_length: 1
+entrypoint: python3 main.py
