@@ -1,13 +1,16 @@
 import logging
-import os
-
-import torch
 
 import determined as det
 
 
 def main(core_context) -> None:
-    print(os.environ)
+    for step in range(-3, 0):
+        core_context.train.report_training_metrics(
+            steps_completed=step, metrics={"some_train_metric": 0}
+        )
+        core_context.train.report_validation_metrics(
+            steps_completed=step, metrics={"some_val_metric": 1}
+        )
 
 
 if __name__ == "__main__":

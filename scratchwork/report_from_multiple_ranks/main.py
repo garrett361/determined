@@ -1,13 +1,12 @@
 import logging
-import os
-
-import torch
 
 import determined as det
 
 
 def main(core_context) -> None:
-    print(os.environ)
+    core_context.train.report_validation_metrics(
+        steps_completed=1, metrics={"rank": core_context.distributed.rank}
+    )
 
 
 if __name__ == "__main__":

@@ -1,13 +1,11 @@
 import logging
-import os
-
-import torch
 
 import determined as det
 
 
 def main(core_context) -> None:
-    print(os.environ)
+    info = det.get_cluster_info()
+    print(info)
 
 
 if __name__ == "__main__":
