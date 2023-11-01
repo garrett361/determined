@@ -1,0 +1,11 @@
+name: hp search with metric groups
+max_restarts: 0
+searcher:
+  name: single
+  metric: val_metric
+  max_length: 1
+resources:
+  slots_per_trial: 0
+hyperparameters:
+  value: 1.0
+entrypoint: python3 main.py

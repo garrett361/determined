@@ -1,0 +1,29 @@
+name: coreapi_mnist_tutorial_distributed
+description: torch 2.0 with nccl flag
+entrypoint: >-
+  python3 -m determined.launch.torch_distributed
+  python3 model_def_distributed.py
+max_restarts: 0
+records_per_epoch: 60000
+hyperparameters:
+  global_batch_size: 64
+  learning_rate: 1e-4
+  n_filters1: 8
+  n_filters2: 8
+  dropout1: .2
+  dropout2: .2
+searcher:
+  name: single
+  metric: test_loss
+  smaller_is_better: true
+  max_length:
+    epochs: 2
+environment:
+  image: determinedai/environments:cuda-11.8-pytorch-2.0-gpu-mpi-0.24.0
+  environment_variables:
+    - NCCL_IB_GID_INDEX=0
+    - NCCL_DEBUG=INFO
+    - NCCL_SOCKET_IFNAME=ens,eth,ib
+resources:
+  slots_per_trial: 16
+  resource_pool: A100

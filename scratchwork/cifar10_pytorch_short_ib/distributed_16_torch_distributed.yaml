@@ -1,4 +1,6 @@
 name: cifar10_pytorch_distributed
+labels:
+  - 16GPU
 workspace: garrettgoon
 project: garrettgoon
 hyperparameters:
@@ -8,14 +10,20 @@ hyperparameters:
   layer2_dropout: 0.25
   layer3_dropout: 0.5
   global_batch_size: 512 # Per-GPU batch size of 32
+environment:
+  environment_variables:
+    - NCCL_DEBUG=INFO
+    # You may need to modify this to match your network configuration.
+    - NCCL_SOCKET_IFNAME=ens,eth,ib
 resources:
   slots_per_trial: 16
+  resource_pool: A100
 records_per_epoch: 50000
 searcher:
   name: single
   metric: validation_error
   max_length:
     epochs: 1
-entrypoint: model_def:CIFARTrial
+entrypoint: python3 -m determined.launch.torch_distributed --trial model_def:CIFARTrial
 min_validation_period:
   epochs: 1

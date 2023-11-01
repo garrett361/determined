@@ -1,0 +1,20 @@
+name: coreapi_mnist_tutorial
+description: A bare-bones experiment configuration file to run the model_def.py script on a Determined cluster.
+entrypoint: >-
+   python3 torch_distributed.py
+   python3 model_def.py
+environment:
+  image: garrettgoon/lore_train_eval
+  force_pull_image: true
+  environment_variables:
+    #- NCCL_IBEX_DISABLE=1
+    - NCCL_DEBUG=INFO
+    - NCCL_NET_PLUGIN=none
+max_restarts: 0
+searcher:
+   name: single
+   max_length: 1
+   metric: val_loss
+resources:
+  slots_per_trial: 16
+  resource_pool: A100

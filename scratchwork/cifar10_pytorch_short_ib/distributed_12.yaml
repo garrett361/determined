@@ -1,4 +1,7 @@
 name: cifar10_pytorch_distributed
+labels:
+  - 12GPU
+  - T4
 workspace: garrettgoon
 project: garrettgoon
 hyperparameters:
@@ -8,8 +11,14 @@ hyperparameters:
   layer2_dropout: 0.25
   layer3_dropout: 0.5
   global_batch_size: 512 # Per-GPU batch size of 32
+environment:
+  environment_variables:
+    - NCCL_DEBUG=INFO
+    # You may need to modify this to match your network configuration.
+    - NCCL_SOCKET_IFNAME=ens,eth,ib
 resources:
-  slots_per_trial: 16
+  slots_per_trial: 12
+  resource_pool: T4
 records_per_epoch: 50000
 searcher:
   name: single
