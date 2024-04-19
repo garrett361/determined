@@ -13,6 +13,11 @@ Not tested:
 
 - Everything else
 
+Missing:
+
+- Mixed precision, all of the various FSDP options.
+- ...
+
 To run:
 
 ```bash
