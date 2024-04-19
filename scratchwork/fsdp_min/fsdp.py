@@ -22,7 +22,7 @@ Minimal transformer model FSDP script with Core API.
 
 def get_fake_data_iter(
     batch_size: int, vocab_size: int, max_seq_len: int, rank: int, device: torch.device
-) -> Generator[torch.Tensor, None, None]:
+) -> Generator[tuple[torch.Tensor, torch.Tensor], None, None]:
     """
     Fake dataloader. Repeatedly yields the same (inputs, targets) tuple of tensors, with different
     tensors on different ranks.
@@ -132,7 +132,7 @@ def main(
     device = torch.device(f"cuda:{core_context.distributed.local_rank}")
     torch.cuda.set_device(device)
 
-    # All other hparams are used to build the model. Build it directly on the device.
+    # Build the unsharded model directly on the device.
     model = Transformer(
         d_model=hparams["d_model"],
         n_heads=hparams["n_heads"],
@@ -142,13 +142,12 @@ def main(
         device=device,
     )
 
-    # Inspect the model
+    # Inspect the model:
     if core_context.distributed.rank == 0:
         print("Model before FSDP:")
         print(model, flush=True)
 
-    # Use a ModuleWrapPolicy wrap the embedding layer, lm head, and each transformer block into its
-    # own FSDP unit:
+    # Wrap the embedding layer, the lm head, and each transformer block into its own FSDP unit:
     auto_wrap_policy = ModuleWrapPolicy([TransformerBlock, EmbedAndEncode, LMHead])
 
     # The fsdp model:
@@ -165,6 +164,7 @@ def main(
         print("Model after FSDP:")
         print(fsdp_model, flush=True)
 
+    # The optimizer must be created post-FSDP
     optimizer = torch.optim.AdamW(fsdp_model.parameters(), lr=hparams["lr"])
 
     steps_completed = 0
