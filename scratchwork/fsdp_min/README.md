@@ -5,9 +5,13 @@ Example of using FSDP with determined and Core API. Simple transformer model ada
 
 Tested:
 
-- Does not error on the pytorch 2.0 image specified in `config.yaml`
+- Does not error on the pytorch 2.0 image specified in `config.yaml` when running on T4s.
 - Checkpoint save and reload.
 - Metric reporting.
+
+Not tested:
+
+- Everything else
 
 To run:
 
