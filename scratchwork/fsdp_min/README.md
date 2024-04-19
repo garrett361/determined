@@ -5,9 +5,12 @@ Example of using FSDP with determined and Core API. Simple transformer model ada
 
 Tested:
 
-- Does not error.
+- Does not error on the pytorch 2.0 image specified in `config.yaml`
 - Checkpoint save and reload.
+- Metric reporting.
 
-Untested:
+To run:
 
-- Everything else
+```bash
+det e create config.yaml .
+```
