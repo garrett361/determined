@@ -1,15 +1,11 @@
-name: cifar10_pytorch_distributed
-workspace: garrettgoon
-project: garrettgoon
+name: cifar10_pytorch_const profiled
 hyperparameters:
   learning_rate: 1.0e-4
   learning_rate_decay: 1.0e-6
   layer1_dropout: 0.25
   layer2_dropout: 0.25
   layer3_dropout: 0.5
-  global_batch_size: 512 # Per-GPU batch size of 32
-resources:
-  slots_per_trial: 16
+  global_batch_size: 32
 records_per_epoch: 50000
 searcher:
   name: single

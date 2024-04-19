@@ -2,9 +2,8 @@ import logging
 import random
 
 import determined as det
-from determined.common import util as det_util
 
-metric_groups = [det_util._LEGACY_TRAINING, det_util._LEGACY_VALIDATION, "inference", "test"]
+metric_groups = ["inference", "test"]
 metric_names = ["acc", "f1"]
 
 
@@ -12,9 +11,9 @@ def main(core_context: det.core.Context):
     for step in range(10):
         for group in metric_groups:
             metrics = {name: (step * random.random()) ** 2 for name in metric_names}
-            core_context.train._report_trial_metrics(
-                group=group, total_batches=step, metrics=metrics
-            )
+            core_context.train.report_metrics(group=group, steps_completed=step, metrics=metrics)
+
+    core_context.train.report_validation_metrics(steps_completed=10, metrics=metrics)
 
 
 if __name__ == "__main__":

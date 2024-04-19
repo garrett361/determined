@@ -1,10 +1,9 @@
-name: test_generic_metrics
-workspace: garretth
-project: Release Party
+name: generic metrics
 entrypoint: python3 metric_groups.py
 searcher:
   name: single
-  metric: x
-  max_length: 1
-
+  metric: acc
+  max_length: 11
+resources:
+  slots_per_trial: 0
 max_restarts: 0

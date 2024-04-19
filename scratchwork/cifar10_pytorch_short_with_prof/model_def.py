@@ -44,7 +44,10 @@ class Flatten(nn.Module):
 class CIFARTrial(PyTorchTrial):
     def __init__(self, context: PyTorchTrialContext) -> None:
         self.context = context
-
+        self.context.set_profiler(
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+        )
         self.download_directory = "data"
         os.makedirs(self.download_directory, exist_ok=True)
 

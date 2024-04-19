@@ -1,0 +1,5 @@
+name: template name
+workspace: garrett
+project: garrett
+resources:
+  slots_per_trial: 0
