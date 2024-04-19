@@ -22,7 +22,7 @@ Minimal transformer model FSDP script with Core API.
 
 def get_fake_data_iter(
     batch_size: int, vocab_size: int, max_seq_len: int, rank: int, device: torch.device
-) -> Generator[torch.Tensor]:
+) -> Generator[torch.Tensor, None, None]:
     """
     Fake dataloader. Repeatedly yields the same (inputs, targets) tuple of tensors, with different
     tensors on different ranks.
