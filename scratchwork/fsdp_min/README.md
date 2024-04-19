@@ -1,6 +1,6 @@
 # FSDP + Core API
 
-Example of using FSDP with determined and Core API. (Relatively) simple transformer model adapted from [GPT-fast
+Example of using Fully Sharded Data Parallel [(FSDP)](https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html) with determined and Core API. (Relatively) simple transformer model adapted from [GPT-fast
 ](https://github.com/pytorch-labs/gpt-fast) training on fake data.
 
 Tested:
@@ -15,7 +15,9 @@ Not tested:
 
 Missing:
 
-- Mixed precision, all of the various FSDP options.
+- Mixed precision
+- Lots of FSDP options
+- Validation
 - ...
 
 To run:
