@@ -1,7 +1,7 @@
 import json
 import logging
 import random
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 
 import numpy as np
 import torch
@@ -22,7 +22,7 @@ Minimal transformer model FSDP script with Core API.
 
 def get_fake_data_iter(
     batch_size: int, vocab_size: int, max_seq_len: int, rank: int, device: torch.device
-) -> torch.Tensor:
+) -> Generator[torch.Tensor]:
     """
     Fake dataloader. Repeatedly yields the same (inputs, targets) tuple of tensors, with different
     tensors on different ranks.
@@ -145,7 +145,7 @@ def main(
     # Inspect the model
     if core_context.distributed.rank == 0:
         logging.info("Model before FSDP:")
-        logging.info(model)
+        print(model, flush=True)
 
     # Use a ModuleWrapPolicy wrap the embedding layer, lm head, and each transformer block into its
     # own FSDP unit:
@@ -163,7 +163,7 @@ def main(
     # Inspect the model post-FSDP
     if core_context.distributed.rank == 0:
         logging.info("Model after FSDP:")
-        logging.info(model)
+        print(fsdp_model, flush=True)
 
     optimizer = torch.optim.AdamW(fsdp_model.parameters(), lr=hparams["lr"])
 
