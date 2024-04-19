@@ -144,7 +144,7 @@ def main(
 
     # Inspect the model
     if core_context.distributed.rank == 0:
-        logging.info("Model before FSDP:")
+        print("Model before FSDP:")
         print(model, flush=True)
 
     # Use a ModuleWrapPolicy wrap the embedding layer, lm head, and each transformer block into its
@@ -162,7 +162,7 @@ def main(
 
     # Inspect the model post-FSDP
     if core_context.distributed.rank == 0:
-        logging.info("Model after FSDP:")
+        print("Model after FSDP:")
         print(fsdp_model, flush=True)
 
     optimizer = torch.optim.AdamW(fsdp_model.parameters(), lr=hparams["lr"])
