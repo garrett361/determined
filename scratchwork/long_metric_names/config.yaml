@@ -1,0 +1,11 @@
+name: long metric names metrics
+project: garrett
+workspace: garrett
+entrypoint: python3 script.py
+searcher:
+  name: single
+  metric: acc
+  max_length: 11
+resources:
+  slots_per_trial: 0
+max_restarts: 0
