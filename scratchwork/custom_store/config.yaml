@@ -1,0 +1,12 @@
+name: custom store
+entrypoint: python3 -m determined.launch.torch_distributed -- python3 script.py
+searcher:
+  name: single
+  metric: loss
+  max_length: 1
+resources:
+  slots_per_trial: 2
+environment:
+  image:
+    gpu: determinedai/environments:cuda-11.8-pytorch-2.0-gpu-mpi-0.31.1
+max_restarts: 0
