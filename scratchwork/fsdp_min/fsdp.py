@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import random
 from typing import Any, Dict, Generator, Optional, TypedDict
 
@@ -37,7 +38,7 @@ def get_fake_data_iter(
     generator.manual_seed(42 + rank + 100000 * is_validation)
     while True:
         fake_sequence = torch.randint(
-            vocab_size, (batch_size, max_seq_len), device=device, generator=generator
+            vocab_size, (batch_size, max_seq_len + 1), device=device, generator=generator
         )
         inputs, targets = fake_sequence[..., :-1], fake_sequence[..., 1:]
         yield inputs, targets
@@ -88,6 +89,7 @@ def save_checkpoint(
     fsdp_model: FSDP,
     optimizer: torch.optim.Optimizer,
     scaler: ShardedGradScaler,
+    use_amp: bool,
     core_context: det.core.Context,
     steps_completed: int,
 ) -> None:
@@ -108,15 +110,17 @@ def save_checkpoint(
         ):
             torch.save(model_state_dict, path.joinpath("model.bin"))
             torch.save(optim_state_dict, path.joinpath("optim.bin"))
-            # Scaler state is automatically the same across ranks.
-            scaler_state_dict = scaler.state_dict()
-            torch.save(scaler_state_dict, path.joinpath("scaler.bin"))
+            if use_amp:
+                # Scaler state is automatically the same across ranks.
+                scaler_state_dict = scaler.state_dict()
+                torch.save(scaler_state_dict, path.joinpath("scaler.bin"))
 
 
 def load_checkpoint(
     fsdp_model: FSDP,
     optimizer: torch.optim.Optimizer,
     scaler: ShardedGradScaler,
+    use_amp: bool,
     core_context: det.core.Context,
     device: torch.device,
     uuid: str,
@@ -135,7 +139,9 @@ def load_checkpoint(
                 optim_state_dict=optim_state_dict,
             )
             optimizer.load_state_dict(optim_state_dict_to_load)
-        scaler.load_state_dict(torch.load(path.joinpath("scaler.bin")))
+        scaler_path = path.joinpath("scaler.bin")
+        if use_amp and os.path.isfile(scaler_path):
+            scaler.load_state_dict(torch.load(scaler_path))
 
         with open(path.joinpath("metadata.json"), "r") as f:
             metadata = json.load(f)
@@ -214,7 +220,7 @@ def main(
     # If a previous checkpoint exists, load it now and correct the steps_completed:
     if checkpoint_uuid is not None:
         steps_completed = load_checkpoint(
-            fsdp_model, optimizer, scaler, core_context, device, checkpoint_uuid
+            fsdp_model, optimizer, scaler, use_amp, core_context, device, checkpoint_uuid
         )
     # If torch profiler enabled, write profiling results to TensorBoard accessible through WebUI.
     if use_torch_profiler:
@@ -263,7 +269,9 @@ def main(
                 )
 
             if steps_completed % checkpoint_rate == 0 or this_is_the_last_step:
-                save_checkpoint(fsdp_model, optimizer, scaler, core_context, steps_completed)
+                save_checkpoint(
+                    fsdp_model, optimizer, scaler, use_amp, core_context, steps_completed
+                )
                 # Since should_preempt is blocking, we only check at checkpoint_rate to
                 # maintain performance.
                 if core_context.preempt.should_preempt():
